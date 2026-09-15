@@ -1,0 +1,61 @@
+name: reliability
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · .NET 10
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build (warnings as errors, .NET analyzers)
+        run: dotnet build tests/SpaceLink.Tests -c Release
+      - name: Test with coverage gate (line 90 / branch 85)
+        run: >
+          dotnet test tests/SpaceLink.Tests -c Release --no-build
+          --logger "trx;LogFileName=results.trx" --logger "console;verbosity=normal"
+          --results-directory build/test-results
+          /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura
+          /p:CoverletOutput=../../build/coverage/
+          /p:Threshold=90%2c85 /p:ThresholdType=line%2cbranch /p:ThresholdStat=total
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ matrix.os }}
+          path: build
+
+  mutation:
+    name: Stryker.NET mutation testing
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install Stryker.NET
+        run: dotnet tool install -g dotnet-stryker
+      - name: Run mutation tests (break below 80)
+        working-directory: tests/SpaceLink.Tests
+        run: dotnet stryker --project SpaceLink.csproj --break-at 80 --reporter html --reporter progress --output ../../build/stryker
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-report
+          path: build/stryker
