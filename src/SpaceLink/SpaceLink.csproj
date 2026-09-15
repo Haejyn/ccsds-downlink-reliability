@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>SpaceLink</RootNamespace>
+    <Description>CCSDS TM 전송 프레임·Space Packet 수신 처리 (프레임 검증, 가상 채널별 패킷 재조립, 링크 이상 이벤트)</Description>
+  </PropertyGroup>
+  <PropertyGroup>
+    <!-- CA1711: 'SequenceFlags' 는 CCSDS 133.0-B 표준 필드 이름이라 그대로 쓴다 -->
+    <NoWarn>$(NoWarn);CA1711</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SpaceLink.Tests" />
+  </ItemGroup>
+</Project>
