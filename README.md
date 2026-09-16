@@ -16,7 +16,7 @@ dotnet test tests/SpaceLink.Tests -c Release -p:CollectCoverage=true
 |---|---|
 | 시험 | **44 통과 / 0 실패** (xUnit) |
 | 커버리지 (coverlet) | 라인 **100 %** (305/305) · 분기 **100 %** (132/132) · 메서드 100 % |
-| 뮤테이션 검출률 (Stryker.NET) | **93.24 %** — 죽임 232 · 타임아웃 44 · 생존 18 · 미커버 2 ([CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/34970718543)). 생존 18개를 전부 판정해 **시험 약점 6건을 보강**했다 |
+| 뮤테이션 검출률 (Stryker.NET) | **96.28 %** — 죽임 225 · 타임아웃 60 · 생존 11 ([CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/35062000045)). 생존 18개를 전부 판정해 **시험 약점 6건을 보강**한 결과 93.24 % → 96.28 % |
 | 요구사항 추적 | **15 / 15** ([`docs/traceability.md`](docs/traceability.md), `python tools/trace.py` 가 생성) |
 | 빌드 | 컴파일러·.NET 분석기(latest-recommended) 경고를 오류로 — 경고 0 |
 | 처리량 (측정 항목) | CI ubuntu **50,403 프레임/초** (≈ 6.5 MB/s, REQ-EXT-08 기준 5만 충족) · 로컬 **26,462~28,863 프레임/초** (실행마다 다름) — 아래 한계 참고 |
@@ -51,5 +51,4 @@ dotnet test tests/SpaceLink.Tests -c Release -p:CollectCoverage=true
 
 - **처리량** — 요구 기준(CI 5만 프레임/초)은 넘지만, SpaceEye-T 급 위성의 Gbps 다운링크와는 두 자릿수 차이다 (CI 6.5 MB/s). 원인 후보: 채널 버퍼를 `List<byte>` 로 두고 앞에서 잘라내는 O(n²) 복사, 프레임마다 할당. 다음: 링 버퍼·`Span` 기반 무할당 경로, BenchmarkDotNet 측정
 - 리드-솔로몬·컨볼루션 부호, ASM 동기 탐색, AOS 프레임은 범위 밖
-- 이벤트·예외의 **메시지 문구는 계약이 아니라고 보고 시험하지 않는다** — 생존 뮤턴트 18개 중 10개가 이 문자열이다 ([시험 보고서 §4](docs/test-report.md))
-- 보강한 시험 5개를 반영한 뮤테이션 점수는 다음 CI 실행에서 다시 잰다
+- 이벤트·예외의 **메시지 문구는 계약이 아니라고 보고 시험하지 않는다** — 남은 생존 뮤턴트 11개는 메시지 문자열 9개와 관찰상 동등 2개뿐이라, 문구를 계약으로 삼지 않는 한 96.28 % 가 상한이다 ([시험 보고서 §4](docs/test-report.md))
