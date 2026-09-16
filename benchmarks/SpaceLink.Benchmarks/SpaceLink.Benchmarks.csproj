@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- 벤치마크 메서드는 인스턴스 메서드여야 하고(CA1822), 픽스처는 배열 프로퍼티로 두는 편이 읽기 쉽다(CA1819).
+         측정용 난수는 암호용이 아니다(CA5394). -->
+    <NoWarn>$(NoWarn);CA1822;CA1819;CA5394;CA1024;CA1002</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SpaceLink\SpaceLink.csproj" />
+  </ItemGroup>
+</Project>

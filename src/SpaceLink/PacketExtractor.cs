@@ -37,9 +37,16 @@ public sealed record ExtractionResult(IReadOnlyList<SpacePacket> Packets, IReadO
 /// <summary>
 /// 지상국 수신 처리: 전송 프레임을 한 장씩 받아 검증하고, 가상 채널별로 패킷을 재조립한다.
 /// 설계 원칙 — 손상됐을 가능성이 있는 패킷은 절대 내보내지 않는다. 확실하지 않으면 버리고 이벤트로 알린다.
+///
+/// 정상 흐름에서는 프레임 대부분이 패킷도 이벤트도 내지 않는다. 그 경우 아무것도 할당하지 않는다
+/// (빈 목록은 공유 인스턴스, 결과 객체도 하나를 재사용). 프레임 검증은 사본 없이 원본 버퍼 위에서 한다.
 /// </summary>
 public sealed class PacketExtractor
 {
+    private static readonly SpacePacket[] NoPackets = [];
+    private static readonly LinkEvent[] NoEvents = [];
+    private static readonly ExtractionResult Empty = new(NoPackets, NoEvents);
+
     private readonly FrameConfig _config;
     private readonly bool _verifyPacketErrorControl;
     private readonly ChannelState[] _channels = new ChannelState[TransferFrame.MaxVirtualChannelId + 1];
@@ -63,16 +70,16 @@ public sealed class PacketExtractor
 
     public ExtractionResult Process(ReadOnlySpan<byte> rawFrame)
     {
-        var packets = new List<SpacePacket>();
-        var events = new List<LinkEvent>();
-        FrameDecodeResult decoded = TransferFrame.Decode(rawFrame, _config);
-        if (!decoded.IsValid)
+        List<SpacePacket>? packets = null;
+        List<LinkEvent>? events = null;
+
+        FrameError error = TransferFrame.Validate(rawFrame, _config, out FrameView frame);
+        if (error != FrameError.None)
         {
-            events.Add(new LinkEvent(LinkEventKind.FrameRejected, null, decoded.Error.ToString()));
-            return new ExtractionResult(packets, events);
+            Add(ref events, new LinkEvent(LinkEventKind.FrameRejected, null, error.ToString()));
+            return Result(packets, events);
         }
 
-        TransferFrame frame = decoded.Frame!;
         int vc = frame.VirtualChannelId;
         ChannelState channel = _channels[vc];
         byte count = frame.VirtualChannelFrameCount;
@@ -81,75 +88,82 @@ public sealed class PacketExtractor
         {
             if (count == last)
             {
-                events.Add(new LinkEvent(LinkEventKind.DuplicateFrame, vc, $"count={count}"));
-                return new ExtractionResult(packets, events);
+                Add(ref events, new LinkEvent(LinkEventKind.DuplicateFrame, vc, $"count={count}"));
+                return Result(packets, events);
             }
 
             byte expected = unchecked((byte)(last + 1));
             if (count != expected)
             {
                 int lost = (count - expected + 256) % 256;
-                events.Add(new LinkEvent(LinkEventKind.FrameGap, vc, $"expected={expected} got={count} lost={lost}"));
+                Add(ref events, new LinkEvent(LinkEventKind.FrameGap, vc, $"expected={expected} got={count} lost={lost}"));
                 channel.Desynchronize();
             }
         }
 
         channel.LastFrameCount = count;
         ushort fhp = frame.FirstHeaderPointerValue;
-        ReadOnlySpan<byte> data = frame.DataField.Span;
+        ReadOnlySpan<byte> data = frame.DataField;
 
         if (fhp == FirstHeaderPointer.IdleData)
         {
-            events.Add(new LinkEvent(LinkEventKind.IdleFrame, vc, $"count={count}"));
-            return new ExtractionResult(packets, events);
+            Add(ref events, new LinkEvent(LinkEventKind.IdleFrame, vc, $"count={count}"));
+            return Result(packets, events);
         }
 
         if (fhp == FirstHeaderPointer.NoPacketStart)
         {
             if (channel.InSync)
             {
-                channel.Buffer.AddRange(data);
-                Drain(channel, vc, packets, events);
+                channel.Append(data);
+                Drain(channel, vc, ref packets, ref events);
             }
 
-            return new ExtractionResult(packets, events);
+            return Result(packets, events);
         }
 
         if (channel.InSync)
         {
-            channel.Buffer.AddRange(data[..fhp]);
-            Drain(channel, vc, packets, events);
-            if (channel.InSync && channel.Buffer.Count != 0)
+            channel.Append(data[..fhp]);
+            Drain(channel, vc, ref packets, ref events);
+            if (channel.InSync && channel.Count != 0)
             {
-                events.Add(new LinkEvent(LinkEventKind.HeaderPointerMismatch, vc,
-                    $"{channel.Buffer.Count} pending bytes did not end at first header pointer {fhp}"));
+                Add(ref events, new LinkEvent(LinkEventKind.HeaderPointerMismatch, vc,
+                    $"{channel.Count} pending bytes did not end at first header pointer {fhp}"));
             }
         }
 
         channel.Resynchronize();
-        channel.Buffer.AddRange(data[fhp..]);
-        Drain(channel, vc, packets, events);
-        return new ExtractionResult(packets, events);
+        channel.Append(data[fhp..]);
+        Drain(channel, vc, ref packets, ref events);
+        return Result(packets, events);
     }
 
-    private void Drain(ChannelState channel, int vc, List<SpacePacket> packets, List<LinkEvent> events)
+    private static void Add<T>(ref List<T>? list, T item) => (list ??= []).Add(item);
+
+    private static ExtractionResult Result(List<SpacePacket>? packets, List<LinkEvent>? events) =>
+        packets is null && events is null
+            ? Empty
+            : new ExtractionResult((IReadOnlyList<SpacePacket>?)packets ?? NoPackets, (IReadOnlyList<LinkEvent>?)events ?? NoEvents);
+
+    private void Drain(ChannelState channel, int vc, ref List<SpacePacket>? packets, ref List<LinkEvent>? events)
     {
-        while (channel.InSync && PacketHeader.TryRead(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(channel.Buffer), out PacketHeader header))
+        while (channel.InSync && PacketHeader.TryRead(channel.Pending, out PacketHeader header))
         {
             if (header.Version != 0)
             {
-                events.Add(new LinkEvent(LinkEventKind.InvalidPacketHeader, vc, $"version={header.Version}"));
+                Add(ref events, new LinkEvent(LinkEventKind.InvalidPacketHeader, vc, $"version={header.Version}"));
                 channel.Desynchronize();
                 return;
             }
 
-            if (channel.Buffer.Count < header.TotalLength)
+            if (channel.Count < header.TotalLength)
             {
                 return;
             }
 
-            SpacePacket packet = SpacePacket.Decode(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(channel.Buffer)[..header.TotalLength]);
-            channel.Buffer.RemoveRange(0, header.TotalLength);
+            SpacePacket packet = SpacePacket.Decode(channel.Pending[..header.TotalLength]);
+            channel.Consume(header.TotalLength);
             if (packet.IsIdle)
             {
                 continue;
@@ -157,24 +171,24 @@ public sealed class PacketExtractor
 
             if (_verifyPacketErrorControl && !packet.HasValidErrorControl())
             {
-                events.Add(new LinkEvent(LinkEventKind.PacketErrorControlFailed, vc, $"apid={packet.Apid} seq={packet.SequenceCount}"));
+                Add(ref events, new LinkEvent(LinkEventKind.PacketErrorControlFailed, vc, $"apid={packet.Apid} seq={packet.SequenceCount}"));
                 channel.Desynchronize();
                 return;
             }
 
-            CheckSequence(packet, events);
-            packets.Add(packet);
+            CheckSequence(packet, ref events);
+            Add(ref packets, packet);
         }
     }
 
-    private void CheckSequence(SpacePacket packet, List<LinkEvent> events)
+    private void CheckSequence(SpacePacket packet, ref List<LinkEvent>? events)
     {
         if (_lastSequenceCount.TryGetValue(packet.Apid, out ushort last))
         {
             int expected = (last + 1) & SpacePacket.MaxSequenceCount;
             if (packet.SequenceCount != expected)
             {
-                events.Add(new LinkEvent(LinkEventKind.SequenceGap, null,
+                Add(ref events, new LinkEvent(LinkEventKind.SequenceGap, null,
                     $"apid={packet.Apid} expected={expected} got={packet.SequenceCount}"));
             }
         }
@@ -182,24 +196,77 @@ public sealed class PacketExtractor
         _lastSequenceCount[packet.Apid] = packet.SequenceCount;
     }
 
+    /// <summary>
+    /// 가상 채널 하나의 조립 상태. 조립 버퍼는 앞을 잘라내지 않고 <see cref="_start"/> 만 옮긴다 —
+    /// `List&lt;byte&gt;.RemoveRange(0, n)` 은 남은 바이트를 매번 앞으로 당겨 복사해 O(n²) 가 된다.
+    /// </summary>
     private sealed class ChannelState
     {
+        private byte[] _buffer = new byte[4096];
+        private int _start;
+        private int _end;
+
         public byte? LastFrameCount { get; set; }
 
         public bool InSync { get; private set; }
 
-        public List<byte> Buffer { get; } = [];
+        public int Count => _end - _start;
+
+        /// <summary>아직 패킷으로 꺼내지 않은 바이트.</summary>
+        public ReadOnlySpan<byte> Pending => _buffer.AsSpan(_start, _end - _start);
+
+        public void Append(ReadOnlySpan<byte> data)
+        {
+            EnsureRoom(data.Length);
+            data.CopyTo(_buffer.AsSpan(_end));
+            _end += data.Length;
+        }
+
+        public void Consume(int length)
+        {
+            _start += length;
+            if (_start == _end)
+            {
+                _start = 0;
+                _end = 0;
+            }
+        }
 
         public void Desynchronize()
         {
             InSync = false;
-            Buffer.Clear();
+            Clear();
         }
 
         public void Resynchronize()
         {
             InSync = true;
-            Buffer.Clear();
+            Clear();
+        }
+
+        private void Clear()
+        {
+            _start = 0;
+            _end = 0;
+        }
+
+        private void EnsureRoom(int length)
+        {
+            if (_end + length <= _buffer.Length)
+            {
+                return;
+            }
+
+            // 앞으로 당기기만 하면 되는 경우(_start > 0 인 채로 뒤가 모자란 경우)는 두지 않는다 —
+            // Process 가 패킷이 시작되는 프레임마다 Resynchronize 로 버퍼를 비우므로, 소비가 일어나는
+            // 동안 _start 가 0 보다 큰 채로 버퍼 끝까지 차는 흐름이 없다. 도달할 수 없는 가지를 남기면
+            // 커버리지·뮤테이션이 영영 채워지지 않는다.
+            int pending = Count;
+            var bigger = new byte[Math.Max(_buffer.Length * 2, pending + length)];
+            _buffer.AsSpan(_start, pending).CopyTo(bigger);
+            _buffer = bigger;
+            _start = 0;
+            _end = pending;
         }
     }
 }

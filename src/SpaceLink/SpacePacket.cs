@@ -101,13 +101,19 @@ public sealed class SpacePacket : IEquatable<SpacePacket>
     public byte[] Encode()
     {
         var buffer = new byte[TotalLength];
-        int id = ((int)Type << 12) | ((HasSecondaryHeader ? 1 : 0) << 11) | Apid;
-        int seq = ((int)SequenceFlags << 14) | SequenceCount;
-        BinaryPrimitives.WriteUInt16BigEndian(buffer, (ushort)id);
-        BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(2), (ushort)seq);
-        BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(4), (ushort)(_data.Length - 1));
+        WriteHeader(buffer);
         _data.CopyTo(buffer, PrimaryHeaderLength);
         return buffer;
+    }
+
+    /// <summary>주 헤더 6 바이트를 쓴다. 부호화와 PEC 검증이 같은 배치를 쓰도록 한 곳에 둔다.</summary>
+    private void WriteHeader(Span<byte> destination)
+    {
+        int id = ((int)Type << 12) | ((HasSecondaryHeader ? 1 : 0) << 11) | Apid;
+        int seq = ((int)SequenceFlags << 14) | SequenceCount;
+        BinaryPrimitives.WriteUInt16BigEndian(destination, (ushort)id);
+        BinaryPrimitives.WriteUInt16BigEndian(destination[2..], (ushort)seq);
+        BinaryPrimitives.WriteUInt16BigEndian(destination[4..], (ushort)(_data.Length - 1));
     }
 
     /// <summary>바이트열 전체가 정확히 한 패킷이어야 한다. 버전·길이가 맞지 않으면 FormatException.</summary>
@@ -157,8 +163,11 @@ public sealed class SpacePacket : IEquatable<SpacePacket>
             return false;
         }
 
-        byte[] encoded = Encode();
-        ushort expected = Crc16Ccitt.Compute(encoded.AsSpan(0, encoded.Length - 2));
+        // 패킷 전체를 다시 부호화하지 않는다 — 수신 처리기가 패킷마다 부르는 경로라
+        // 사본 한 장이 곧 초당 수만 번의 할당이 된다. 헤더는 스택에, 데이터는 그대로 두고 이어서 계산한다.
+        Span<byte> header = stackalloc byte[PrimaryHeaderLength];
+        WriteHeader(header);
+        ushort expected = Crc16Ccitt.Compute(_data.AsSpan(0, _data.Length - 2), Crc16Ccitt.Compute(header));
         return BinaryPrimitives.ReadUInt16BigEndian(_data.AsSpan(_data.Length - 2)) == expected;
     }
 
