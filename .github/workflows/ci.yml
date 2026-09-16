@@ -22,6 +22,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Build (warnings as errors, .NET analyzers)
         run: dotnet build tests/SpaceLink.Tests -c Release
       - name: Test with coverage gate (line 90 / branch 85)
@@ -32,6 +35,16 @@ jobs:
           /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura
           /p:CoverletOutput=../../build/coverage/
           /p:Threshold=90%2c85 /p:ThresholdType=line%2cbranch /p:ThresholdStat=total
+      - name: Requirements traceability (spec ↔ Trait ↔ TRX)
+        run: python tools/trace.py
+      - name: Job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## ${{ matrix.os }} · .NET 10"
+            tail -2 docs/traceability.md
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
