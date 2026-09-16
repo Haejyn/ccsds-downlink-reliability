@@ -17,7 +17,7 @@ dotnet test tests/SpaceLink.Tests -c Release -p:CollectCoverage=true
 | 시험 | **89 통과 / 0 실패** (xUnit) |
 | 커버리지 (coverlet) | 라인 **100 %** (657/657) · 분기 **100 %** (288/288) · 메서드 100 % |
 | 채널 부호 (RS·ASM·PN) | RS(255,223) 심볼 오류 **16 개까지 정정**, 17 개 이상은 3,000/3,000 **실패 선언**(오정정 0). 3 비트 슬립에서 10 장 중 7 장 복원 후 재동기 |
-| 뮤테이션 검출률 (Stryker.NET) | **95.12 %** — 죽임 242 · 타임아웃 70 · 생존 16 ([CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/35067912044)). 93.24 % → 시험 약점 6건 보강 후 96.28 % → 처리량 재작성으로 채점 대상이 296 → 328 로 늘며 95.12 %. 생존 16개는 **메시지 문자열 10 · 관찰상 동등 3 · 성능 정책 3** 으로 전부 판정 |
+| 뮤테이션 검출률 (Stryker.NET) | **93.27 %** — 죽임 579 · 타임아웃 58 · 생존 46 ([CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/35074180503)). 채널 부호로 채점 대상이 328 → 683 으로 늘었다. 생존 46 은 **메시지 문자열 18 · 이미 판정 5 · 동등 시프트 3 · RS·동기기의 실제 약점 20** 으로 나눴고, **약점 20 은 아직 보강하지 않았다** ([시험 보고서 §9.5](docs/test-report.md)) |
 | 요구사항 추적 | **23 / 23** ([`docs/traceability.md`](docs/traceability.md), `python tools/trace.py` 가 생성) |
 | 빌드 | 컴파일러·.NET 분석기(latest-recommended) 경고를 오류로 — 경고 0 |
 | 처리량 (BenchmarkDotNet, 단일 스레드) | **2,781,000 프레임/초** ≈ 356 MB/s ≈ **2.85 Gbps** (128 바이트 프레임 78,001 장 / 28.04 ms) · PEC 검증 포함 1,589,000 프레임/초 |
