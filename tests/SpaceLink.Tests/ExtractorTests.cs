@@ -100,6 +100,53 @@ public class FaultInjectionTests
     private static List<SpacePacket> ExpectedSurvivors(List<SpacePacket> sent, Downlink.Link link, ISet<int> damagedFrames) =>
         sent.Where((_, i) => !damagedFrames.Any(k => link.Overlaps(i, k))).ToList();
 
+    [Fact]
+    [Trait("Requirement", "REQ-EXT-09")]
+    public void Invalid_packet_version_desynchronizes_until_the_next_first_header_pointer()
+    {
+        // 버전이 0 이 아닌 헤더를 만나면 그 채널의 조립 데이터를 버려야 한다. 버리지 않으면
+        // 이어지는 프레임이 같은 쓰레기 버퍼에 계속 붙어 같은 이벤트가 되풀이된다.
+        FrameConfig config = Downlink.Config;
+        int dataFieldLength = config.DataFieldLength;
+        byte[] bad = new SpacePacket(3, 0, new byte[200]).Encode();
+        bad[0] |= 0x20;                                                  // 패킷 버전 번호 ≠ 0
+
+        var continuation = new byte[dataFieldLength];
+        bad.AsSpan(dataFieldLength).CopyTo(continuation);                // 나머지는 다음 프레임에 이어진다
+
+        byte[] good = Downlink.Packet(4, 0, dataFieldLength - SpacePacket.PrimaryHeaderLength).Encode();
+        Assert.Equal(dataFieldLength, good.Length);                      // 패딩이 남지 않도록 데이터 필드를 꽉 채운다
+
+        byte[][] frames =
+        [
+            new TransferFrame(0x155, 1, 0, 0, 0, bad.AsSpan(0, dataFieldLength)).Encode(config),
+            new TransferFrame(0x155, 1, 1, 1, FirstHeaderPointer.NoPacketStart, continuation).Encode(config),
+            new TransferFrame(0x155, 1, 2, 2, 0, good).Encode(config),
+        ];
+
+        var events = new List<LinkEvent>();
+        List<SpacePacket> received = Downlink.Receive(frames, events);
+        Assert.Single(events, e => e.Kind == LinkEventKind.InvalidPacketHeader);
+        Assert.Equal(new[] { SpacePacket.Decode(good) }, received);
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-EXT-03")]
+    public void Frame_gap_event_reports_how_many_frames_were_lost()
+    {
+        // 유실 개수는 8 비트 순환을 고려한 (받은 카운트 − 기대 카운트) 다. 개수를 확인하지 않으면
+        // 이 계산이 틀려도 시험이 통과한다.
+        var rnd = new Random(41);
+        List<SpacePacket> sent = Downlink.RandomPackets(rnd, count: 60, maxDataLength: 100, 9);
+        Downlink.Link link = Downlink.Pack(sent);
+        Assert.True(link.Frames.Count > 12, "the run needs frames on both sides of the gap");
+        int[] dropped = [5, 6, 7];
+        var events = new List<LinkEvent>();
+        Downlink.Receive(link.Frames.Where((_, i) => !dropped.Contains(i)), events);
+        LinkEvent gap = Assert.Single(events, e => e.Kind == LinkEventKind.FrameGap);
+        Assert.Contains("expected=5 got=8 lost=3", gap.Detail, StringComparison.Ordinal);
+    }
+
     [Theory]
     [Trait("Requirement", "REQ-EXT-03")]
     [InlineData(11, 0.02)]

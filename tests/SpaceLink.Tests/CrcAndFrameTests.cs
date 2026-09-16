@@ -207,6 +207,36 @@ public class TransferFrameTests
         Assert.Throws<InvalidOperationException>(() => new TransferFrame(0, 0, 0, 0, 0, new byte[7]).Encode(Small));
         Assert.Throws<InvalidOperationException>(() => new TransferFrame(0, 0, 0, 0, 8, new byte[8]).Encode(Small));
     }
+
+    [Fact]
+    [Trait("Requirement", "REQ-FRM-01")]
+    public void Frames_without_frame_error_control_round_trip()
+    {
+        // FECF 를 끄는 형식도 지원한다. 이 경로는 CRC 검사를 건너뛰므로 따로 확인한다.
+        var config = new FrameConfig(128, hasFrameErrorControl: false);
+        Assert.Equal(122, config.DataFieldLength);
+        var data = new byte[config.DataFieldLength];
+        new Random(5).NextBytes(data);
+
+        byte[] encoded = new TransferFrame(0x155, 2, 7, 9, 0, data).Encode(config);
+        Assert.Equal(config.FrameLength, encoded.Length);
+        FrameDecodeResult decoded = TransferFrame.Decode(encoded, config);
+        Assert.True(decoded.IsValid);
+        Assert.Equal(data, decoded.Frame!.DataField.ToArray());
+
+        // FECF 가 없으면 마지막 바이트도 데이터다 — 바꿔도 프레임은 유효하고, 오류는 걸러지지 않는다.
+        encoded[^1] ^= 0xFF;
+        Assert.True(TransferFrame.Decode(encoded, config).IsValid);
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-FRM-03")]
+    public void Data_field_length_limits_are_inclusive_at_both_ends()
+    {
+        // 거부 쪽(14 · 2055)만 확인하면 경계 비교를 `<` → `<=` 로 바꾼 결함이 드러나지 않는다.
+        Assert.Equal(SpacePacket.PrimaryHeaderLength + 1, new FrameConfig(15).DataFieldLength);
+        Assert.Equal(FrameConfig.MaxDataFieldLength, new FrameConfig(2054).DataFieldLength);
+    }
 }
 
 public class SpacePacketTests
@@ -258,5 +288,27 @@ public class SpacePacketTests
         byte[] version = (byte[])ok.Clone();
         version[0] |= 0x20;
         Assert.Throws<FormatException>(() => SpacePacket.Decode(version));
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-EXT-06")]
+    public void Error_control_check_is_false_when_the_packet_cannot_hold_a_crc()
+    {
+        // PEC 는 데이터 필드 끝 2 바이트다. 데이터가 3 바이트 미만이면 검사할 것이 없다.
+        Assert.False(new SpacePacket(1, 0, [1, 2]).HasValidErrorControl());
+        Assert.True(SpacePacket.WithErrorControl(1, 0, [1, 2]).HasValidErrorControl());
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-PKT-01")]
+    public void Value_equality_distinguishes_packets_by_content()
+    {
+        var a = new SpacePacket(5, 1, [1, 2, 3]);
+        var b = new SpacePacket(5, 1, [1, 2, 3]);
+        Assert.True(a.Equals((object)b));
+        Assert.Equal(a.GetHashCode(), b.GetHashCode());
+        Assert.False(a.Equals((object?)null));
+        Assert.NotEqual(a, new SpacePacket(5, 1, [1, 2, 4]));
+        Assert.Contains("apid=5", a.ToString(), StringComparison.Ordinal);
     }
 }
