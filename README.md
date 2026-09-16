@@ -16,7 +16,7 @@ dotnet test tests/SpaceLink.Tests -c Release -p:CollectCoverage=true
 |---|---|
 | 시험 | **44 통과 / 0 실패** (xUnit) |
 | 커버리지 (coverlet) | 라인 **100 %** (305/305) · 분기 **100 %** (132/132) · 메서드 100 % |
-| 뮤테이션 검출률 (Stryker.NET) | **96.28 %** — 죽임 225 · 타임아웃 60 · 생존 11 ([CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/35062000045)). 생존 18개를 전부 판정해 **시험 약점 6건을 보강**한 결과 93.24 % → 96.28 % |
+| 뮤테이션 검출률 (Stryker.NET) | **95.12 %** — 죽임 242 · 타임아웃 70 · 생존 16 ([CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/35067912044)). 93.24 % → 시험 약점 6건 보강 후 96.28 % → 처리량 재작성으로 채점 대상이 296 → 328 로 늘며 95.12 %. 생존 16개는 **메시지 문자열 10 · 관찰상 동등 3 · 성능 정책 3** 으로 전부 판정 |
 | 요구사항 추적 | **15 / 15** ([`docs/traceability.md`](docs/traceability.md), `python tools/trace.py` 가 생성) |
 | 빌드 | 컴파일러·.NET 분석기(latest-recommended) 경고를 오류로 — 경고 0 |
 | 처리량 (BenchmarkDotNet, 단일 스레드) | **2,781,000 프레임/초** ≈ 356 MB/s ≈ **2.85 Gbps** (128 바이트 프레임 78,001 장 / 28.04 ms) · PEC 검증 포함 1,589,000 프레임/초 |
