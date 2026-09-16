@@ -14,7 +14,8 @@ dotnet test tests/SpaceLink.Tests -c Release -p:CollectCoverage=true
 
 | 항목 | 결과 |
 |---|---|
-| 시험 | **89 통과 / 0 실패** (xUnit) |
+| 시험 | **91 통과 / 0 실패** (xUnit) |
+| 뮤테이션을 심판으로 세운 시험 생성 루프 | `tools/mutation_loop/` — 생존 뮤턴트를 모델에 넘겨 시험을 쓰게 하고, **생존이 줄 때만 채택**한다. `ReedSolomon.cs` 에서 생존 10 → 7, 죽은 셋은 전부 REQ-RS-03 의 핵심([시험 보고서 §10](docs/test-report.md)) |
 | 커버리지 (coverlet) | 라인 **100 %** (657/657) · 분기 **100 %** (288/288) · 메서드 100 % |
 | 채널 부호 (RS·ASM·PN) | RS(255,223) 심볼 오류 **16 개까지 정정**, 17 개 이상은 3,000/3,000 **실패 선언**(오정정 0). 3 비트 슬립에서 10 장 중 7 장 복원 후 재동기 |
 | 뮤테이션 검출률 (Stryker.NET) | **93.27 %** — 죽임 579 · 타임아웃 58 · 생존 46 ([CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/35074180503)). 채널 부호로 채점 대상이 328 → 683 으로 늘었다. 생존 46 은 **메시지 문자열 18 · 이미 판정 5 · 동등 시프트 3 · RS·동기기의 실제 약점 20** 으로 나눴고, **약점 20 은 아직 보강하지 않았다** ([시험 보고서 §9.5](docs/test-report.md)) |
