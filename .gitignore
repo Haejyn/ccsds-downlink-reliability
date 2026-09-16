@@ -7,3 +7,5 @@ StrykerOutput/
 .vs/
 .idea/
 BenchmarkDotNet.Artifacts/
+__pycache__/
+*.pyc
