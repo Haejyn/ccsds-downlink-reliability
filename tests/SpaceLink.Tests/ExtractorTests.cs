@@ -33,6 +33,24 @@ public class NominalReceptionTests
     }
 
     [Fact]
+    [Trait("Requirement", "REQ-EXT-01")]
+    public void Packets_larger_than_the_channel_buffer_are_reassembled()
+    {
+        // 조립 버퍼는 4 KB 로 시작한다. 그보다 큰 패킷은 수백 프레임에 걸쳐 오므로 버퍼가 커지고,
+        // 큰 패킷이 끝난 뒤 남은 조각을 앞으로 당기는 경로까지 지난다.
+        SpacePacket big = Downlink.Packet(12, 0, 30_000);
+        SpacePacket second = Downlink.Packet(12, 1, 9_000);
+        SpacePacket small = Downlink.Packet(12, 2, 40);
+        SpacePacket[] sent = [big, second, small];
+        Downlink.Link link = Downlink.Pack(sent);
+
+        var events = new List<LinkEvent>();
+        Assert.Equal(sent, Downlink.Receive(link.Frames, events));
+        Assert.Empty(events);
+        Assert.True(link.Frames.Count > 300, $"expected a long multi-frame run, got {link.Frames.Count}");
+    }
+
+    [Fact]
     [Trait("Requirement", "REQ-EXT-02")]
     public void Virtual_channels_are_reassembled_independently_when_interleaved()
     {
@@ -380,7 +398,7 @@ public class RobustnessTests
     [Fact]
     [Trait("Category", "Performance")]
     [Trait("Requirement", "REQ-EXT-08")]
-    public void Throughput_is_measured_and_does_not_regress_below_5k_frames_per_second()
+    public void Throughput_stays_above_a_regression_floor_under_parallel_test_load()
     {
         var rnd = new Random(71);
         Downlink.Link link = Downlink.Pack(Downlink.RandomPackets(rnd, 60_000, 300, 1, 2, 3, 4));
@@ -397,7 +415,10 @@ public class RobustnessTests
         Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"throughput: {link.Frames.Count} frames ({link.Frames.Count * 128 / 1_000_000.0:F1} MB) in {sw.Elapsed.TotalMilliseconds:F0} ms = {framesPerSecond:F0} frames/s"));
         Assert.Equal(60_000, packets);
-        // 합격 기준이 아니라 측정 항목: 목표(Gbps 급 다운링크)와의 차이는 보고서에 기록한다. 큰 성능 회귀만 막는다.
+        // ⚠ 이 숫자를 처리량으로 인용하지 않는다. xUnit 이 시험 클래스를 병렬로 돌리므로 전수 비트 오류·
+        // 강건성 시험과 CPU 를 나눠 쓰는 값이다 (같은 코드가 단독 측정에서는 20~25배 빠르다).
+        // 실제 처리량은 benchmarks/SpaceLink.Benchmarks (단일 스레드, BenchmarkDotNet) 에서 잰다.
+        // 여기서는 "심하게 느려지지 않았다" 만 본다. 큰 성능 회귀만 막는다.
         Assert.True(framesPerSecond > 5_000, $"{framesPerSecond:F0} frames/s");
     }
 }

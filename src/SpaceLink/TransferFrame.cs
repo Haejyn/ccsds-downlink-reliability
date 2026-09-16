@@ -138,10 +138,35 @@ public sealed class TransferFrame
     /// <summary>프레임을 검증하고 해석한다. 예외를 던지지 않고 오류 종류를 돌려준다.</summary>
     public static FrameDecodeResult Decode(ReadOnlySpan<byte> bytes, FrameConfig config)
     {
+        FrameError error = Validate(bytes, config, out FrameView view);
+        if (error != FrameError.None)
+        {
+            return new FrameDecodeResult(null, error);
+        }
+
+        var frame = new TransferFrame(
+            spacecraftId: view.SpacecraftId,
+            virtualChannelId: view.VirtualChannelId,
+            masterChannelFrameCount: view.MasterChannelFrameCount,
+            virtualChannelFrameCount: view.VirtualChannelFrameCount,
+            firstHeaderPointer: view.FirstHeaderPointerValue,
+            dataField: view.DataField,
+            operationalControlField: view.OperationalControlField);
+        return new FrameDecodeResult(frame, FrameError.None);
+    }
+
+    /// <summary>
+    /// 검증만 하고 필요한 필드를 뷰로 돌려준다 — 프레임 객체도 데이터 사본도 만들지 않는다.
+    /// 수신 처리기가 프레임마다 부르는 경로라, 여기서 생기는 할당 한 번이 곧 초당 수만 번이 된다.
+    /// <see cref="Decode"/> 도 이 검증을 그대로 쓴다 (규칙이 두 벌로 갈라지지 않게).
+    /// </summary>
+    internal static FrameError Validate(ReadOnlySpan<byte> bytes, FrameConfig config, out FrameView view)
+    {
         ArgumentNullException.ThrowIfNull(config);
+        view = default;
         if (bytes.Length != config.FrameLength)
         {
-            return new FrameDecodeResult(null, FrameError.WrongLength);
+            return FrameError.WrongLength;
         }
 
         if (config.HasFrameErrorControl)
@@ -149,14 +174,14 @@ public sealed class TransferFrame
             int crcOffset = bytes.Length - FrameConfig.FrameErrorControlFieldLength;
             if (Crc16Ccitt.Compute(bytes[..crcOffset]) != BinaryPrimitives.ReadUInt16BigEndian(bytes[crcOffset..]))
             {
-                return new FrameDecodeResult(null, FrameError.CrcMismatch);
+                return FrameError.CrcMismatch;
             }
         }
 
         ushort id = BinaryPrimitives.ReadUInt16BigEndian(bytes);
         if (id >> 14 != 0)
         {
-            return new FrameDecodeResult(null, FrameError.UnsupportedVersion);
+            return FrameError.UnsupportedVersion;
         }
 
         bool ocfFlag = (id & 1) == 1;
@@ -168,12 +193,12 @@ public sealed class TransferFrame
         bool pointerInside = fhp < config.DataFieldLength || fhp is FirstHeaderPointer.IdleData or FirstHeaderPointer.NoPacketStart;
         if (ocfFlag != config.HasOperationalControlField || secondaryHeader || syncFlag || segmentLengthId != 0b11 || !pointerInside)
         {
-            return new FrameDecodeResult(null, FrameError.InvalidDataFieldStatus);
+            return FrameError.InvalidDataFieldStatus;
         }
 
         int dataEnd = FrameConfig.PrimaryHeaderLength + config.DataFieldLength;
         uint ocf = config.HasOperationalControlField ? BinaryPrimitives.ReadUInt32BigEndian(bytes[dataEnd..]) : 0;
-        var frame = new TransferFrame(
+        view = new FrameView(
             spacecraftId: (ushort)(id >> 4),
             virtualChannelId: (byte)((id >> 1) & 0x7),
             masterChannelFrameCount: bytes[2],
@@ -181,6 +206,37 @@ public sealed class TransferFrame
             firstHeaderPointer: fhp,
             dataField: bytes[FrameConfig.PrimaryHeaderLength..dataEnd],
             operationalControlField: ocf);
-        return new FrameDecodeResult(frame, FrameError.None);
+        return FrameError.None;
     }
+}
+
+/// <summary>검증된 프레임에서 수신 처리에 필요한 값만 담은 뷰. 데이터 필드는 원본 버퍼를 그대로 가리킨다.</summary>
+internal readonly ref struct FrameView
+{
+    public FrameView(ushort spacecraftId, byte virtualChannelId, byte masterChannelFrameCount,
+        byte virtualChannelFrameCount, ushort firstHeaderPointer, ReadOnlySpan<byte> dataField,
+        uint operationalControlField)
+    {
+        SpacecraftId = spacecraftId;
+        VirtualChannelId = virtualChannelId;
+        MasterChannelFrameCount = masterChannelFrameCount;
+        VirtualChannelFrameCount = virtualChannelFrameCount;
+        FirstHeaderPointerValue = firstHeaderPointer;
+        DataField = dataField;
+        OperationalControlField = operationalControlField;
+    }
+
+    public ushort SpacecraftId { get; }
+
+    public byte VirtualChannelId { get; }
+
+    public byte MasterChannelFrameCount { get; }
+
+    public byte VirtualChannelFrameCount { get; }
+
+    public ushort FirstHeaderPointerValue { get; }
+
+    public ReadOnlySpan<byte> DataField { get; }
+
+    public uint OperationalControlField { get; }
 }

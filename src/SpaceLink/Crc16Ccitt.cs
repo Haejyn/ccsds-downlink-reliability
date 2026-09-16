@@ -11,9 +11,15 @@ public static class Crc16Ccitt
 
     private static readonly ushort[] Table = BuildTable();
 
-    public static ushort Compute(ReadOnlySpan<byte> data)
+    public static ushort Compute(ReadOnlySpan<byte> data) => Compute(data, InitialValue);
+
+    /// <summary>
+    /// 앞선 계산값에 이어서 계산한다. 헤더와 데이터가 서로 다른 버퍼에 있을 때
+    /// 하나로 합치지 않고(사본 없이) CRC 를 구하려고 쓴다.
+    /// </summary>
+    public static ushort Compute(ReadOnlySpan<byte> data, ushort seed)
     {
-        ushort crc = InitialValue;
+        ushort crc = seed;
         foreach (byte b in data)
         {
             crc = (ushort)((crc << 8) ^ Table[((crc >> 8) ^ b) & 0xFF]);

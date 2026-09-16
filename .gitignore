@@ -6,3 +6,4 @@ StrykerOutput/
 *.user
 .vs/
 .idea/
+BenchmarkDotNet.Artifacts/
