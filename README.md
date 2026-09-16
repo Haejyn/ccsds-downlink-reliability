@@ -25,7 +25,7 @@ dotnet test tests/SpaceLink.Tests -c Release -p:CollectCoverage=true
 | 프레임당 할당 | **244 B** (개선 전 443 B) · PEC 경로 **246 B** (개선 전 591 B) |
 | 발견·수정 결함 | **C-1** 프레임 카운트로 감지되지 않는 유실에서 손상 패킷 출력 |
 
-→ [시험 보고서](docs/test-report.md) · [요구사항](docs/requirements.md) · [추적 매트릭스](docs/traceability.md)
+→ [시험 보고서](docs/test-report.md) · [시험 계획서](docs/test-plan.md) · [요구사항](docs/requirements.md) · [추적 매트릭스](docs/traceability.md)
 
 ## 시험 구성
 
