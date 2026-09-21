@@ -45,6 +45,20 @@ public class FrameSynchronizerTests
         return shifted;
     }
 
+    /// <summary>first..last 번째 CADU 의 마커 앞 12 비트를 뭉갠다 — 해밍 거리 12 는 어떤 허용치(≤ 3)로도 알아볼 수 없다.</summary>
+    private static void DamageMarkers(byte[] stream, ChannelCodec codec, int first, int last)
+    {
+        int caduBits = codec.CaduLength * 8;
+        for (int cadu = first; cadu <= last; cadu++)
+        {
+            for (int bit = 0; bit < 12; bit++)
+            {
+                int bitIndex = (cadu * caduBits) + bit;
+                stream[bitIndex / 8] ^= (byte)(0x80 >> (bitIndex % 8));
+            }
+        }
+    }
+
     [Fact]
     [Trait("Requirement", "REQ-ASM-01")]
     public void Locks_onto_a_clean_stream_and_emits_every_codeblock()
@@ -250,5 +264,123 @@ public class FrameSynchronizerTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new ChannelCodec(100_000));
         Assert.Throws<ArgumentException>(() => Codec().EncodeCadu(new byte[10]));
         Assert.Throws<ArgumentException>(() => Codec().DecodeCodeblock(new byte[10]));
+    }
+
+    // ───── 버퍼가 유계인가, 버린 경계에서 내보내지 않는가, 허용치의 경계 ─────
+    // 출처: Stryker 생존 중 이 클래스의 `Trim()` 삭제(137·140·166) · `dropBytes <= 0`(182·184) ·
+    //       `continue` 삭제(130) · 허용치 `>` ↔ `>=`(123).
+    // 기존 시험이 못 잡은 이유 —
+    //  · 버퍼 정리는 `Process` 의 반환값을 바꾸지 않아 메모리에만 나타난다. 게다가 `Trim()` 이 세 곳에서 중복으로
+    //    불려 하나를 지워도 나머지가 덮어 주었다. 중복 둘을 제품 코드에서 지운 뒤에야 남은 하나가 하중을 받는다.
+    //  · 재동기 시험은 **복호에 성공한 장수**만 셌다. 버린 경계에서 코드블록이 하나 새어 나가도 그 수는 그대로다.
+    //  · flywheel 시험은 손상 마커를 6 연속으로 넣고 `>=` 로만 단언해 허용치 경계의 바로 위·아래를 구분하지 못했다.
+
+    [Fact]
+    [Trait("Requirement", "REQ-ASM-04")]
+    public void Buffered_bytes_stay_within_two_cadus_however_long_the_stream_is()
+    {
+        // 스트림 전체를 한 번에 넣으면 Process 호출 안의 정리는 보이지 않는다 — 실제 수신처럼 조각으로 넣고
+        // 매 호출이 **반환된 뒤**의 보유량을 본다. 조각(1,000 B)을 CADU(259 B)와 나누어떨어지지 않게 둬서
+        // 매 호출이 코드블록 한가운데에서 끝나게 한다 — 잘라낼 자리를 잘못 잡는 구현이면 버퍼가 스트림 길이만큼 자란다.
+        // 상한의 근거는 구현이 아니라 알고리즘이다: 잠근 뒤에는 CADU 한 장이 다 찰 때까지만 들고 있으면 되고
+        // (그 전에는 Process 가 멈춘다) 그 이상 보관할 이유가 없다. 두 장은 조각 경계 여유다.
+        ChannelCodec codec = Codec();
+        const int caduCount = 4_000;      // 약 1 MB
+        const int chunkBytes = 1_000;
+        byte[] stream = Stream(codec, caduCount);
+        var sync = new FrameSynchronizer(codec.CodeblockLength);
+
+        int peak = 0;
+        for (int offset = 0; offset < stream.Length; offset += chunkBytes)
+        {
+            sync.Process(stream.AsSpan(offset, Math.Min(chunkBytes, stream.Length - offset)));
+            peak = Math.Max(peak, sync.BufferedBytes);
+        }
+
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"보유 바이트: 스트림 {stream.Length:N0} B · 최대 {peak} B (CADU 한 장 {codec.CaduLength} B)"));
+
+        Assert.Equal(caduCount, sync.CodeblocksEmitted);   // 상한을 지키려고 데이터를 버린 게 아님을 함께 확인
+        Assert.True(peak <= 2 * codec.CaduLength,
+            $"보유 바이트가 CADU 두 장({2 * codec.CaduLength} B)을 넘었다 — 스트림 길이에 따라 자란다 (최대 {peak} B)");
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-ASM-04")]
+    public void While_searching_only_the_last_bits_a_marker_could_still_start_in_are_kept()
+    {
+        // 마커가 없는 잡음. 허용치 0 으로 잡아 우연히 마커처럼 보이는 32 비트가 없게 한다(고정 시드).
+        // 탐색 중에는 마커가 아직 시작할 수 있는 마지막 31 비트만 있으면 된다. 바이트 단위로만 버릴 수 있어
+        // 정렬 여유 7 비트를 더한 38 비트 = 5 바이트가 상한이다.
+        ChannelCodec codec = Codec();
+        var sync = new FrameSynchronizer(codec.CodeblockLength, maxMarkerBitErrors: 0);
+        var noise = new byte[256 * 1024];
+        new Random(2026).NextBytes(noise);
+
+        int peak = 0;
+        for (int offset = 0; offset < noise.Length; offset += 1_000)
+        {
+            sync.Process(noise.AsSpan(offset, Math.Min(1_000, noise.Length - offset)));
+            peak = Math.Max(peak, sync.BufferedBytes);
+        }
+
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"탐색 중 보유 바이트: 잡음 {noise.Length:N0} B · 최대 {peak} B"));
+
+        Assert.Equal(SyncState.Search, sync.State);
+        Assert.Equal(0, sync.CodeblocksEmitted);
+        Assert.True(peak <= 5, $"탐색 중에는 마커 32 비트에 한 비트 모자란 만큼만 들고 있으면 된다 (최대 {peak} B)");
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-ASM-03")]
+    public void Giving_up_on_a_boundary_drops_the_codeblock_there_instead_of_emitting_it()
+    {
+        // 허용치 3 에서 마커를 4 장 연속(CADU 5~8)으로 뭉갠다. 앞의 셋(5·6·7)은 관성으로 내보낸다 — 경계가 아직 맞을 수 있다.
+        // 넷째(8)에서 경계를 **버리기로 판정**하므로 그 자리의 코드블록은 내보내면 안 된다. 버린 경계에서 뽑은 데이터는 믿지 않는다.
+        // 손 계산: 0~4 (5 장) + flywheel 5·6·7 (3 장) + 재탐색 뒤 9~11 (3 장) = 11 장 · 재동기 1 회 · 마커 놓침 4 회.
+        // 뭉갠 것은 마커뿐이라 8번 코드블록 자체는 온전하다 — 그래서 새어 나가면 "복호 성공 수" 로는 드러나지 않는다.
+        ChannelCodec codec = Codec();
+        byte[] stream = Stream(codec, 12);
+        DamageMarkers(stream, codec, first: 5, last: 8);
+
+        var sync = new FrameSynchronizer(codec.CodeblockLength, flywheelTolerance: 3);
+        List<byte[]> blocks = sync.Process(stream);
+
+        Assert.Equal(1, sync.Resyncs);
+        Assert.Equal(4, sync.MarkersMissed);
+        Assert.True(blocks.Count == 11,
+            $"0~4 · 5~7(flywheel) · 9~11(재탐색 뒤) = 11 장이어야 한다 — 버린 경계(8)의 코드블록을 내보내면 12 장이 된다 (실제 {blocks.Count})");
+
+        int[] expectedFrames = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11];
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            Assert.True(Frame(expectedFrames[i]).AsSpan().SequenceEqual(codec.DecodeCodeblock(blocks[i]).TransferFrame),
+                $"{i} 번째로 나온 코드블록은 프레임 {expectedFrames[i]} 여야 한다");
+        }
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-ASM-03")]
+    public void Missing_exactly_the_tolerated_number_of_markers_keeps_the_boundary()
+    {
+        // 허용치와 **같은** 수(3)만큼 연속으로 놓치는 건 아직 버틴다 — 넘어야(네 번째) 탐색으로 돌아간다.
+        // 다섯째 CADU 부터 셋(5·6·7)을 뭉갠 뒤 8번 마커가 살아 있으면 경계를 그대로 믿고 잠금으로 돌아와야 한다.
+        ChannelCodec codec = Codec();
+        byte[] stream = Stream(codec, 12);
+        DamageMarkers(stream, codec, first: 5, last: 7);
+
+        var sync = new FrameSynchronizer(codec.CodeblockLength, flywheelTolerance: 3);
+        List<byte[]> blocks = sync.Process(stream);
+
+        Assert.Equal(0, sync.Resyncs);
+        Assert.Equal(3, sync.MarkersMissed);
+        Assert.Equal(SyncState.Lock, sync.State);
+        Assert.True(blocks.Count == 12, $"경계를 한 번도 잃지 않았으니 12 장 모두 나와야 한다 (실제 {blocks.Count})");
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            Assert.True(Frame(i).AsSpan().SequenceEqual(codec.DecodeCodeblock(blocks[i]).TransferFrame),
+                $"{i} 번째 코드블록은 프레임 {i} 여야 한다");
+        }
     }
 }

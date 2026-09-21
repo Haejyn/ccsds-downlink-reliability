@@ -71,6 +71,13 @@ public sealed class FrameSynchronizer
     /// <summary>잠금을 잃고 다시 탐색으로 돌아간 횟수.</summary>
     public long Resyncs { get; private set; }
 
+    /// <summary>
+    /// 아직 소비하지 않고 보유 중인 입력 바이트 수 — 경계를 확인하려고 들고 있어야 하는 만큼이다.
+    /// 스트림이 아무리 길어도 CADU 한 장 안쪽으로 유지된다(REQ-ASM-04). 구현이 아니라 <b>유계인가</b> 가 계약이다:
+    /// 정확한 값은 증가 정책에 따라 달라질 수 있으니 상한만 믿는다. 수신 백로그로 운용 텔레메트리에도 쓴다.
+    /// </summary>
+    public int BufferedBytes => _buffer.Count;
+
     /// <summary>스트림 조각을 넣고, 경계가 맞은 코드블록을 돌려준다 (마커 제외).</summary>
     public List<byte[]> Process(ReadOnlySpan<byte> stream)
     {
@@ -134,9 +141,12 @@ public sealed class FrameSynchronizer
             blocks.Add(ReadBytes(_blockStartBit + (MarkerLength * 8), _codeblockLength));
             CodeblocksEmitted++;
             _blockStartBit += caduBits;
-            Trim();
         }
 
+        // 버퍼는 이 호출의 끝에서 **한 번만** 줄인다. Process 안에서는 AddRange 뒤로 버퍼가 줄기만 하므로
+        // 루프 안에서 잘라도 최대 점유는 그대로이고, 코드블록마다 RemoveRange 가 남은 전체를 앞으로 당겨
+        // 한 번에 큰 스트림을 넣으면 제곱 시간이 된다. (예전에는 여기·루프 안·TrySearch 끝 세 곳에서 불렀다 —
+        // 서로 중복이라 하나를 지워도 나머지가 덮어 주어 어떤 시험으로도 죽지 않았다.)
         Trim();
         return blocks;
     }
@@ -163,7 +173,6 @@ public sealed class FrameSynchronizer
             _searchBit++;
         }
 
-        Trim();
         return false;
     }
 
@@ -178,12 +187,11 @@ public sealed class FrameSynchronizer
             SyncState.Check => _candidateStartBit,
             _ => _blockStartBit,
         };
-        long dropBytes = (keepFrom - _consumedBits) / 8;
-        if (dropBytes <= 0)
-        {
-            return;
-        }
 
+        // 불변식: keepFrom >= _consumedBits — 마지막 정리가 이미 그 자리 이전을 버렸고, keepFrom 은 뒤로 되감기지 않는다
+        // (헛짚은 Check 는 후보 자리 +1 비트로, 놓침 초과 재동기는 경계 +1 비트로 Search 가 시작한다).
+        // 그래서 dropBytes 는 음수가 될 수 없고, 0 이면 RemoveRange(0, 0) 이 아무 일도 하지 않는다.
+        long dropBytes = (keepFrom - _consumedBits) / 8;
         _buffer.RemoveRange(0, (int)dropBytes);
         _consumedBits += dropBytes * 8;
     }
