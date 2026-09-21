@@ -272,14 +272,17 @@ public sealed class ReedSolomonCodec
         return current;
     }
 
-    /// <summary>Ω(x) = [S(x)·Λ(x)] mod x^32.</summary>
+    /// <summary>
+    /// Ω(x) = [S(x)·Λ(x)] mod x^32. Λ 는 언제나 <c>ParitySymbolsPerCodeword + 1</c> 칸이다(<see cref="BerlekampMassey"/>) —
+    /// 그래서 안쪽 합의 상한이 <c>j &lt;= i</c> 하나로 충분하다 (i ≤ 31 &lt; 33).
+    /// </summary>
     private static byte[] ErrorEvaluator(ReadOnlySpan<byte> syndromes, byte[] lambda)
     {
         var omega = new byte[ParitySymbolsPerCodeword];
         for (int i = 0; i < ParitySymbolsPerCodeword; i++)
         {
             byte sum = 0;
-            for (int j = 0; j <= i && j < lambda.Length; j++)
+            for (int j = 0; j <= i; j++)
             {
                 sum ^= GaloisField256.Multiply(lambda[j], syndromes[i - j]);
             }
@@ -290,10 +293,12 @@ public sealed class ReedSolomonCodec
         return omega;
     }
 
-    /// <summary>GF(2^m) 에서 형식 미분 — 짝수 차수 항은 사라진다.</summary>
+    /// <summary>
+    /// GF(2^m) 에서 형식 미분 — 짝수 차수 항은 사라진다. 입력은 언제나 33 칸의 Λ 이므로 결과는 32 칸이다.
+    /// </summary>
     private static byte[] FormalDerivative(byte[] polynomial)
     {
-        var derivative = new byte[Math.Max(1, polynomial.Length - 1)];
+        var derivative = new byte[ParitySymbolsPerCodeword];
         for (int i = 1; i < polynomial.Length; i += 2)
         {
             derivative[i - 1] = polynomial[i];
