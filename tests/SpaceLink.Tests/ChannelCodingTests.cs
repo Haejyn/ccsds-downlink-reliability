@@ -327,4 +327,39 @@ public class PseudorandomizerTests
         Assert.Empty(Pseudorandomizer.Sequence(0));
         Assert.Throws<ArgumentOutOfRangeException>(() => Pseudorandomizer.Sequence(-1));
     }
+
+    /// <summary>
+    /// CCSDS 131.0-B-5 §10.4.3 NOTE 2 (p.10-3) 가 255 비트 랜덤화기의 처음 40 비트로 싣고 있는 값.
+    /// <c>1111 1111 0100 1000 0000 1110 1100 0000 1001 1010</c> — 맨 왼쪽이 코드블록의 첫 비트와 XOR 되는 첫 비트다.
+    /// </summary>
+    private static readonly byte[] StandardFirstFortyBits = [0xFF, 0x48, 0x0E, 0xC0, 0x9A];
+
+    [Fact]
+    [Trait("Requirement", "REQ-PN-01")]
+    public void Sequence_starts_with_the_forty_bits_the_standard_prints()
+    {
+        // 구현이 아니라 **표준 문서**가 기대값의 출처다. 자기 역원·주기 시험은 다항식을 잘못 옮겨도(주기 217 사건)
+        // 통과할 수 있었고, 이 다섯 바이트가 그 틈을 막는다.
+        Assert.True(StandardFirstFortyBits.AsSpan().SequenceEqual(Pseudorandomizer.Sequence(5)),
+            $"수열의 처음 40 비트가 표준의 FF 48 0E C0 9A 와 다르다 (실제 {Convert.ToHexString(Pseudorandomizer.Sequence(5))})");
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-PN-01")]
+    public void Sequence_matches_an_independent_linear_recurrence_over_three_periods()
+    {
+        // 기준 구현이 표준과 같은 수열을 내는지 먼저 못 박는다 — 기준이 틀렸으면 아래 대조가 아무것도 증명하지 못한다.
+        Assert.True(StandardFirstFortyBits.AsSpan().SequenceEqual(Downlink.ReferencePnSequence(5)),
+            "시험 쪽 기준 수열이 표준의 처음 40 비트와 다르다");
+
+        // 세 주기(765 바이트) — 첫 주기의 탭 실수와 주기 경계에서 되감기는 실수를 모두 드러낸다.
+        int length = Pseudorandomizer.SequencePeriod * 3;
+        byte[] expected = Downlink.ReferencePnSequence(length);
+        byte[] actual = Pseudorandomizer.Sequence(length);
+        for (int i = 0; i < length; i++)
+        {
+            Assert.True(expected[i] == actual[i],
+                $"{i} 번째 바이트가 독립 구현과 다르다 (기대 {expected[i]:X2}, 실제 {actual[i]:X2})");
+        }
+    }
 }
