@@ -14,12 +14,12 @@ dotnet test tests/SpaceLink.Tests -c Release -p:CollectCoverage=true
 
 | 항목 | 결과 |
 |---|---|
-| 시험 | **91 통과 / 0 실패** (xUnit) |
+| 시험 | **97 통과 / 0 실패** (xUnit) |
 | 뮤테이션을 심판으로 세운 시험 생성 루프 | `tools/mutation_loop/` — 생존 뮤턴트를 모델에 넘겨 시험을 쓰게 하고, **생존이 줄 때만 채택**한다. `ReedSolomon.cs` 에서 생존 10 → 7, 죽은 셋은 전부 REQ-RS-03 의 핵심([시험 보고서 §10](docs/test-report.md)) |
-| 커버리지 (coverlet) | 라인 **100 %** (657/657) · 분기 **100 %** (288/288) · 메서드 100 % |
+| 커버리지 (coverlet) | 라인 **100 %** (654/654) · 분기 **100 %** (284/284) · 메서드 100 % |
 | 채널 부호 (RS·ASM·PN) | RS(255,223) 심볼 오류 **16 개까지 정정**, 17 개 이상은 3,000/3,000 **실패 선언**(오정정 0). 3 비트 슬립에서 10 장 중 7 장 복원 후 재동기 |
-| 뮤테이션 검출률 (Stryker.NET) | **93.27 %** — 죽임 579 · 타임아웃 58 · 생존 46 ([CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/35074180503)). 채널 부호로 채점 대상이 328 → 683 으로 늘었다. 생존 46 은 **메시지 문자열 18 · 이미 판정 5 · 동등 시프트 3 · RS·동기기의 실제 약점 20** 으로 나눴고, **약점 20 은 아직 보강하지 않았다** ([시험 보고서 §9.5](docs/test-report.md)) |
-| 요구사항 추적 | **23 / 23** ([`docs/traceability.md`](docs/traceability.md), `python tools/trace.py` 가 생성) |
+| 뮤테이션 검출률 (Stryker.NET) | **95.09 %** (639/672 검출 — 죽임 573 · 타임아웃 66 · 생존 33, [CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/35595250295)). 생존 33 은 전부 판정했다 — **메시지 문자열 18 · 이미 판정한 성능 정책·메시지 안 산술 5 · 동등 8 · 남은 실제 약점 2** ([시험 보고서 §9.5](docs/test-report.md)). 죽임·타임아웃 내역은 러너 속도에 따라 흔들려(같은 검출 총수 639 에서 556/83 ↔ 573/66) 검출 총수로 읽는다 |
+| 요구사항 추적 | **24 / 24** ([`docs/traceability.md`](docs/traceability.md), `python tools/trace.py` 가 생성) |
 | 빌드 | 컴파일러·.NET 분석기(latest-recommended) 경고를 오류로 — 경고 0 |
 | 처리량 — **추출 단계만** (BenchmarkDotNet, 단일 스레드) | **2,785,000 프레임/초** ≈ **2.85 Gbps** (128 바이트 프레임 78,089 장 / 28.04 ms) · PEC 검증 포함 1,611,000 프레임/초. 프레임을 패킷으로 조립하는 **마지막 단계**의 값이다 |
 | 처리량 — **수신 체인 전체** (ASM → PN → RS → 추출) | **약 27,000 프레임/초 ≈ 56 Mbps**(채널) — 추출 단계의 **1/95**. 부호어당 심볼 오류 8 개를 정정하면 약 21,500 프레임/초 ≈ 44 Mbps. 2 Gbps 채널율에는 초당 965,251 CADU 가 필요하다 (§8.5 — 조용하지 않은 기계에서 잰 값) |
