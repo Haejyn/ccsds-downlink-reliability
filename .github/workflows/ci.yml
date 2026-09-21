@@ -63,33 +63,16 @@ jobs:
           dotnet-version: 10.0.x
       # 시간이 아니라 **프레임당 할당**으로 막는다. 공유 러너는 실행 시간이 크게 흔들려
       # 시간 기준은 거짓 실패를 만들지만, 할당량은 러너 성능과 무관하다.
-      # 기준 260 B — 현재 244 B (개선 전 443 B, docs/test-report.md §8).
-      - name: Run benchmark (short job)
+      # 벤치마크마다 예산이 다르다(추출만 260 B · 채널 체인 1,340 B …) — 예산 표는 tools/check_allocation.py.
+      # 필터를 열어 둔 것은 새 벤치마크가 조용히 게이트 밖으로 새지 못하게 하려는 것이다:
+      # 예산 표에 없는 벤치마크가 나오면 스크립트가 실패한다.
+      - name: Run benchmarks (short job)
         run: >
           dotnet run -c Release --project benchmarks/SpaceLink.Benchmarks --
-          --filter '*Reassemble*' --job short --exporters json
+          --filter '*' --job short --exporters json
           --artifacts build/benchmark
       - name: Check allocation per frame
-        shell: bash
-        run: |
-          python - <<'PY'
-          import glob, json, sys
-          FRAMES = 78001          # 패킷 60,000 개를 128 바이트 프레임으로 포장한 수
-          LIMIT = 260             # 바이트/프레임
-          # --exporters json 이 만드는 이름은 *-report-full-compressed.json 이다 (full 이 아니다).
-          reports = glob.glob("build/benchmark/results/*-report-full-compressed.json")
-          if not reports:
-              sys.exit("벤치마크 결과를 찾지 못했다")
-          worst = 0.0
-          for path in reports:
-              for case in json.load(open(path, encoding="utf-8"))["Benchmarks"]:
-                  per_frame = case["Memory"]["BytesAllocatedPerOperation"] / FRAMES
-                  print(f"{case['Method']}: {per_frame:.1f} B/프레임")
-                  worst = max(worst, per_frame)
-          print(f"최대 {worst:.1f} B/프레임 (기준 {LIMIT})")
-          if worst > LIMIT:
-              sys.exit(f"할당 회귀: {worst:.1f} B/프레임 > {LIMIT}")
-          PY
+        run: python tools/check_allocation.py build/benchmark
       - name: Upload benchmark artifacts
         if: always()
         uses: actions/upload-artifact@v4
