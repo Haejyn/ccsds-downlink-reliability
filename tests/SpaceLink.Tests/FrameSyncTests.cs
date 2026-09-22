@@ -266,6 +266,23 @@ public class FrameSynchronizerTests
         Assert.Throws<ArgumentException>(() => Codec().DecodeCodeblock(new byte[10]));
     }
 
+    [Fact]
+    [Trait("Requirement", "REQ-RS-01")]
+    public void Frame_exactly_at_the_data_capacity_is_accepted_one_byte_over_is_refused()
+    {
+        // 생성자는 `transferFrameLength > DataLength` 로 거부한다 — 경계값(= DataLength)은 받아들여야 맞다.
+        // `>` 를 `>=` 로 바꾸는 뮤턴트는 정확히 223 바이트(인터리빙 1의 데이터 용량)를 잘못 거부하게 되는데,
+        // 지금까지는 0 바이트·100,000 바이트만 시험해서 그 경계 자체를 아무도 짚지 않았다.
+        int dataLength = new ReedSolomonCodec(interleavingDepth: 1).DataLength;
+        Assert.Equal(223, dataLength);
+
+        var atCapacity = new ChannelCodec(dataLength);
+        Assert.Equal(dataLength, atCapacity.TransferFrameLength);
+
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => new ChannelCodec(dataLength + 1));
+        Assert.Equal(dataLength + 1, ex.ActualValue);
+    }
+
     // ───── 버퍼가 유계인가, 버린 경계에서 내보내지 않는가, 허용치의 경계 ─────
     // 출처: Stryker 생존 중 이 클래스의 `Trim()` 삭제(137·140·166) · `dropBytes <= 0`(182·184) ·
     //       `continue` 삭제(130) · 허용치 `>` ↔ `>=`(123).
