@@ -11,9 +11,22 @@ public readonly record struct ReedSolomonResult(bool Succeeded, int CorrectedSym
 /// 리드-솔로몬 RS(255,223) — 심볼 255 개 중 데이터 223, 패리티 32, 정정 능력 16 심볼.
 /// 인터리빙 깊이 I 를 쓰면 코드블록은 255·I 바이트가 되고, 연속 버스트가 부호어 여러 개로 흩어진다.
 ///
-/// ⚠ 한계: 체 생성 다항식은 CCSDS 131.0-B 의 0x187 을 쓰지만 **이중 기저(dual basis) 변환은 넣지 않았다.**
-/// 정정 능력과 복호 절차는 같아도 실제 CCSDS 비트열과는 호환되지 않는다 — 시험 대상으로 쓰는 구현이다.
-/// 부호 생성 다항식의 근은 α^1 … α^32 (관례 기저).
+/// CCSDS 131.0-B-5 의 표준 RS 코드다 — 아래 두 가지를 표준 문서(§4.3.4, §4.3.9, 부속서 F·G)로 확인했다.
+///
+/// **부호 생성 다항식의 근** — g(x) = Π (x − β^n), n = 112…143, β = α^11 (§4.3.4, E=16 이라 j = 128−E…127+E).
+/// α^1…α^32 (관례 기저의 "가장 쉬운" 선택) 이 아니다. 부속서 G 가 싣는 계수표(G0…G32, 32 개 전부)와
+/// 이 근으로 직접 계산한 값이 지수 단위로 정확히 일치한다 — 시험이 그 표를 그대로 대조한다.
+///
+/// **이중 기저(dual basis)** — 부호 계산은 관례 기저로 하고, 전송하는 바이트는 <see cref="DualBasisTransform"/> 이
+/// 담당하는 이중 기저다(§4.3.9, 부속서 F). 정보 심볼은 전송 바이트 그대로(계산 전에 관례로 바꿨다가 계산 뒤
+/// 다시 이중으로 돌리면 항등이라 원본을 그대로 쓴다) 나가고, 새로 계산한 패리티만 변환해 내보낸다.
+///
+/// **Forney 공식의 보정** — 근이 β^0 이 아니라 β^112 에서 시작하므로(FCR = 112), 오류 크기 계산에
+/// X_k^(1−FCR) 인수가 더 필요하다. FCR = 1(교과서에서 흔한 α^1…α^2t 관례, 이 코드가 전에 쓰던 것)이면
+/// 이 인수가 1 이 되어 사라진다 — 그래서 이전 구현은 이 인수 없이도 맞았다.
+///
+/// ⚠ 남은 한계: 표준의 비트 전송 순서(§4.3.9.2 "z0 이 먼저")를 이 코드베이스의 바이트 저장 관례로
+/// 옮긴 것은 구현의 선택이며, 실제로 캡처한 CCSDS 비트열과 대조하지는 못했다.
 /// </summary>
 public sealed class ReedSolomonCodec
 {
@@ -23,6 +36,12 @@ public sealed class ReedSolomonCodec
 
     /// <summary>정정 가능한 심볼 수 t = 패리티/2.</summary>
     public const int CorrectableSymbols = ParitySymbolsPerCodeword / 2;
+
+    /// <summary>근의 간격 β = α^11 (§4.3.4).</summary>
+    internal const int RootSpacing = 11;
+
+    /// <summary>첫 근의 β 지수 — E=16 이면 j = 128−E = 112 부터 32 개(§4.3.4).</summary>
+    internal const int FirstConsecutiveRoot = 128 - CorrectableSymbols;
 
     private static readonly byte[] Generator = BuildGenerator();
 
@@ -40,6 +59,9 @@ public sealed class ReedSolomonCodec
     /// <summary>코드블록에 담기는 데이터 길이 (바이트).</summary>
     public int DataLength => DataSymbolsPerCodeword * InterleavingDepth;
 
+    /// <summary>n 번째(0-index) 부호 근 β^(112+n) = α^(11·(112+n)). n = 0 … 31.</summary>
+    internal static byte RootAt(int n) => GaloisField256.Exp(RootSpacing * (FirstConsecutiveRoot + n));
+
     /// <summary>데이터를 부호화해 코드블록을 만든다. 인터리빙은 심볼 단위로 번갈아 넣는다.</summary>
     public byte[] Encode(ReadOnlySpan<byte> data)
     {
@@ -55,13 +77,22 @@ public sealed class ReedSolomonCodec
             codeword.Clear();
             for (int i = 0; i < DataSymbolsPerCodeword; i++)
             {
-                codeword[i] = data[(i * InterleavingDepth) + lane];
+                // 전송(이중 기저) 그대로 받은 정보 심볼을, 부호화 대수(관례 기저)를 하기 전에 바꾼다.
+                codeword[i] = DualBasisTransform.ToConventional(data[(i * InterleavingDepth) + lane]);
             }
 
             EncodeCodeword(codeword);
-            for (int i = 0; i < SymbolsPerCodeword; i++)
+
+            for (int i = 0; i < DataSymbolsPerCodeword; i++)
             {
-                codeblock[(i * InterleavingDepth) + lane] = codeword[i];
+                // 정보 심볼은 원본 그대로 내보낸다 — 관례로 바꿨다 다시 이중으로 되돌리면 항등이다.
+                codeblock[(i * InterleavingDepth) + lane] = data[(i * InterleavingDepth) + lane];
+            }
+
+            for (int i = DataSymbolsPerCodeword; i < SymbolsPerCodeword; i++)
+            {
+                // 새로 계산한 패리티만 이중 기저로 바꿔 내보낸다.
+                codeblock[(i * InterleavingDepth) + lane] = DualBasisTransform.ToDualBasis(codeword[i]);
             }
         }
 
@@ -87,7 +118,8 @@ public sealed class ReedSolomonCodec
         {
             for (int i = 0; i < SymbolsPerCodeword; i++)
             {
-                codeword[i] = codeblock[(i * InterleavingDepth) + lane];
+                // 오류가 정보 심볼에 있든 패리티에 있든, 부호화 대수는 전부 관례 기저에서 한다.
+                codeword[i] = DualBasisTransform.ToConventional(codeblock[(i * InterleavingDepth) + lane]);
             }
 
             if (!DecodeCodeword(codeword, out int fixedSymbols))
@@ -98,20 +130,21 @@ public sealed class ReedSolomonCodec
             corrected += fixedSymbols;
             for (int i = 0; i < DataSymbolsPerCodeword; i++)
             {
-                data[(i * InterleavingDepth) + lane] = codeword[i];
+                // 정정된 정보 심볼을 원래 표현(이중 기저)으로 되돌린다.
+                data[(i * InterleavingDepth) + lane] = DualBasisTransform.ToDualBasis(codeword[i]);
             }
         }
 
         return new ReedSolomonResult(true, corrected);
     }
 
-    /// <summary>g(x) = Π (x − α^j), j = 1 … 32. 계수는 높은 차수부터.</summary>
+    /// <summary>g(x) = Π (x − β^(112+n)), n = 0 … 31. 계수는 높은 차수부터.</summary>
     private static byte[] BuildGenerator()
     {
         byte[] generator = [1];
-        for (int j = 1; j <= ParitySymbolsPerCodeword; j++)
+        for (int n = 0; n < ParitySymbolsPerCodeword; n++)
         {
-            byte root = GaloisField256.Exp(j);
+            byte root = RootAt(n);
             var next = new byte[generator.Length + 1];
             for (int i = 0; i < generator.Length; i++)
             {
@@ -155,16 +188,16 @@ public sealed class ReedSolomonCodec
         corrected = 0;
         Span<byte> syndromes = stackalloc byte[ParitySymbolsPerCodeword];
         bool clean = true;
-        for (int j = 0; j < ParitySymbolsPerCodeword; j++)
+        for (int n = 0; n < ParitySymbolsPerCodeword; n++)
         {
-            byte x = GaloisField256.Exp(j + 1);
+            byte x = RootAt(n);
             byte value = 0;
             for (int i = 0; i < SymbolsPerCodeword; i++)
             {
                 value = (byte)(GaloisField256.Multiply(value, x) ^ codeword[i]);
             }
 
-            syndromes[j] = value;
+            syndromes[n] = value;
             if (value != 0)
             {
                 clean = false;
@@ -186,8 +219,8 @@ public sealed class ReedSolomonCodec
         int found = 0;
         for (int exponent = 0; exponent < SymbolsPerCodeword; exponent++)
         {
-            // Λ(α^-exponent) == 0 이면 x^exponent 자리에 오류가 있다.
-            if (Evaluate(lambda, GaloisField256.Exp(-exponent)) != 0)
+            // Λ(β^-exponent) == 0 이면 x^exponent 자리에 오류가 있다. β = α^11 이 근의 간격이다.
+            if (Evaluate(lambda, GaloisField256.Exp(-RootSpacing * exponent)) != 0)
             {
                 continue;
             }
@@ -207,12 +240,19 @@ public sealed class ReedSolomonCodec
         byte[] derivative = FormalDerivative(lambda);
         for (int k = 0; k < found; k++)
         {
-            byte inverseRoot = GaloisField256.Exp(-positions[k]);
+            byte inverseRoot = GaloisField256.Exp(-RootSpacing * positions[k]);
 
             // 근이 서로 다르면 형식 미분은 그 근에서 0 이 되지 않는다. 근이 겹치는 Λ 였다면
             // Chien 이 errorCount 보다 적게 찾아 바로 위에서 이미 실패로 빠졌다 — 0 검사는 도달 불가다.
             byte denominator = Evaluate(derivative, inverseRoot);
             byte magnitude = GaloisField256.Divide(Evaluate(omega, inverseRoot), denominator);
+
+            // 근이 β^0 이 아니라 β^112 부터 시작해(FCR=112) X_k^(1−FCR) 인수가 더 필요하다 —
+            // 교과서 관례(FCR=1, 이 코드가 전에 쓰던 α^1…α^32)면 인수가 1 이 되어 사라진다.
+            // X_k = β^exponent = α^(11·exponent) 이므로 인수는 α^(11·exponent·(1−112)) 다.
+            int scaleExponent = RootSpacing * positions[k] * (1 - FirstConsecutiveRoot);
+            magnitude = GaloisField256.Multiply(magnitude, GaloisField256.Exp(scaleExponent));
+
             int index = SymbolsPerCodeword - 1 - positions[k];
             codeword[index] ^= magnitude;
         }
