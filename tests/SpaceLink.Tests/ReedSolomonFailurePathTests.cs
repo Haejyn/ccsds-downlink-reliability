@@ -41,34 +41,46 @@ public class ReedSolomonFailurePathTests
     [Trait("Requirement", "REQ-RS-03")]
     public void Errors_that_vanish_the_first_thirty_syndromes_are_reported_as_failure()
     {
-        // 오류 e(x) = Π_{j=1..30} (x − α^j) 는 S1 … S30 을 0 으로, S31 만 0 이 아니게 만든다.
+        // CCSDS 131.0-B-5 §4.3.4 의 부호 근은 α^1…α^32 가 아니라 β^112…β^143 (β = α^11) 이다 — A4 에서 고쳤다.
+        // 오류 e(x) = Π_{n=0..29} (x − β^(112+n)) 는 그 30 개 신드롬을 0 으로, 남은 둘(β^142·β^143)만 0 이 아니게 만든다.
         // Berlekamp-Massey 는 끝에서 두 번째 단계에서 차수를 31 로 올리고 마지막 단계에서 그 계수를 읽는다 —
         // 위치 다항식 버퍼가 패리티 수 + 1 만큼 크지 않으면 여기서 예외로 죽는다.
         // 무작위 오류로 이 모양이 나올 확률은 2^-240 수준이라 직접 만든다.
         const int lastIndex = ChannelCoding.ReedSolomonCodec.SymbolsPerCodeword - 1;
         var codec = new ChannelCoding.ReedSolomonCodec();
-        var powers = new byte[ChannelCoding.ReedSolomonCodec.ParitySymbolsPerCodeword + 1];
-        powers[0] = 1;
-        for (int j = 1; j < powers.Length; j++)
+
+        // beta = alpha^11 (부호 근의 간격, 시험 쪽에서 독립적으로 11 번 곱해 구한다), powers[k] = beta^k, k = 0…143.
+        var powers = new byte[144];
+        byte beta = 1;
+        for (int i = 0; i < 11; i++)
         {
-            powers[j] = Multiply(powers[j - 1], 2);
+            beta = Multiply(beta, 2);
+        }
+
+        powers[0] = 1;
+        for (int k = 1; k < powers.Length; k++)
+        {
+            powers[k] = Multiply(powers[k - 1], beta);
         }
 
         byte[] pattern = [1];
-        for (int j = 1; j <= 30; j++)
+        for (int n = 0; n < 30; n++)
         {
-            pattern = TimesLinear(pattern, powers[j]);
+            pattern = TimesLinear(pattern, powers[112 + n]);
         }
 
-        // 시험 쪽 체 산술이 부호기와 같은 체인지 먼저 못 박는다 — 다르면 아래 오류 모양이 뜻을 잃고 시험이 헛돈다.
-        // 마지막 데이터 심볼 하나만 1 이면 패리티 자리에 g(x) = e(x)·(x − α^31)·(x − α^32) 의 계수가 그대로 나온다.
-        byte[] generator = TimesLinear(TimesLinear(pattern, powers[31]), powers[32]);
+        // 시험 쪽 체 산술이 부호기와 같은 체·같은 근인지 먼저 못 박는다 — 다르면 아래 오류 모양이 뜻을 잃고 시험이 헛돈다.
+        // 마지막 데이터 심볼 하나만 1 이면 패리티 자리에 g(x) = e(x)·(x − β^142)·(x − β^143) 의 계수가 그대로 나온다.
+        // 패리티는 전송용 이중 기저로 나가므로(A4), 대조하려면 시험 쪽 계수도 이중 기저로 바꿔야 한다.
+        byte[] generator = TimesLinear(TimesLinear(pattern, powers[112 + 30]), powers[112 + 31]);
         var unit = new byte[codec.DataLength];
-        unit[^1] = 1;
+        // unit 은 Encode 가 받는 이중 기저(전송) 값이다 — 내부에서 관례 기저로 바뀌므로, 그 결과가
+        // 정확히 1(관례 기저, pattern·powers 가 가정하는 단위 정보 심볼)이 되도록 미리 이중 기저로 바꿔 넣는다.
+        unit[^1] = ChannelCoding.DualBasisTransform.ToDualBasis(1);
         byte[] unitCodeword = codec.Encode(unit);
         for (int degree = 0; degree < ChannelCoding.ReedSolomonCodec.ParitySymbolsPerCodeword; degree++)
         {
-            Assert.Equal(generator[degree], unitCodeword[lastIndex - degree]);
+            Assert.Equal(ChannelCoding.DualBasisTransform.ToDualBasis(generator[degree]), unitCodeword[lastIndex - degree]);
         }
 
         var data = new byte[codec.DataLength];
@@ -76,7 +88,9 @@ public class ReedSolomonFailurePathTests
         byte[] codeblock = codec.Encode(data);
         for (int degree = 0; degree < pattern.Length; degree++)
         {
-            codeblock[lastIndex - degree] ^= pattern[degree];   // 인덱스 0 이 x^254 다
+            // 인덱스 0 이 x^254 다. 오류값은 관례 기저로 계산했으니, 이중 기저인 코드블록에 XOR 하려면
+            // 먼저 이중 기저로 바꿔야 한다 — 그래야 관례 기저로 되돌렸을 때(복호기 내부) 원래 뜻한 값이 나온다.
+            codeblock[lastIndex - degree] ^= ChannelCoding.DualBasisTransform.ToDualBasis(pattern[degree]);
         }
 
         var decoded = new byte[codec.DataLength];
