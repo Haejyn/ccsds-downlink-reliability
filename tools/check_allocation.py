@@ -22,8 +22,8 @@ import sys
 BUDGET = {
     "ExtractorBenchmark.Reassemble": 260,                        # 실측 243 (개선 전 443, docs/test-report.md §8)
     "ExtractorBenchmark.ReassembleWithErrorControl": 260,        # 실측 242
-    "ChannelChainBenchmark.DecodeChain": 1340,                   # 실측 1,247 (오류 없음 — ASM·PN·RS 복호·추출)
-    "ChannelChainBenchmark.DecodeChainWithSymbolErrors": 2620,   # 실측 2,443 (부호어당 심볼 오류 8 개)
+    "ChannelChainBenchmark.DecodeChain": 870,                    # 실측 810 (오류 없음 — ASM·PN·RS 복호·추출, 짧은 코드블록 뒤. 전에는 1,247)
+    "ChannelChainBenchmark.DecodeChainWithSymbolErrors": 2150,   # 실측 2,007 (부호어당 심볼 오류 8 개, 짧은 코드블록 뒤. 전에는 2,443)
 }
 
 
