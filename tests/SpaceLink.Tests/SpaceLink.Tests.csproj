@@ -20,4 +20,8 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- 외부 구현(libfec)으로 만든 기준 벡터 — tools/gen_golden_libfec.py -->
+    <None Include="golden\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
