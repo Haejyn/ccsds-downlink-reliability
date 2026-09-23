@@ -88,10 +88,14 @@ public class ShortenedCodeblockTests
         Assert.Equal(frame, decoded);
     }
 
-    [Fact]
+    [Theory]
     [Trait("Requirement", "REQ-RS-05")]
-    public void A_correction_that_lands_on_the_virtual_fill_is_reported_as_failure()
+    [InlineData(0)]
+    [InlineData(94)]
+    public void A_correction_that_lands_on_the_virtual_fill_is_reported_as_failure(int fillPosition)
     {
+        // fillPosition — 채움의 첫 자리(0)와 마지막 자리(Q−1 = 94). 마지막 자리는 Chien 탐색이 보는 범위의 바로 바깥이라,
+        // 탐색 범위를 한 칸 늘리는 실수(`<` → `<=`)를 이 자리만 잡는다 — 첫 자리만 시험할 때는 그 뮤턴트가 살아남았다(§8.6 후속).
         // 채움 자리는 0 인 게 확실하다 — 복호기가 그 자리를 "고쳐야" 한다고 결론 내면, 받은 것은 채움이 0 인
         // 어떤 부호어에서도 16 심볼 안쪽에 있지 않다는 뜻이다. 이를 무시하면 조용히 다른 데이터를 내보낸다.
         //
@@ -108,7 +112,7 @@ public class ShortenedCodeblockTests
         byte[] c1 = shortCodec.Encode(frame);
 
         var e = new byte[fullCodec.DataLength];
-        e[0] = 0x5A;          // 채움 자리
+        e[fillPosition] = 0x5A;   // 채움 자리
         e[fill] = 0xC3;       // 보내는 첫 데이터 자리
         byte[] c2 = fullCodec.Encode(e);
 
