@@ -8,7 +8,7 @@
 |---|---|
 | SW | `SpaceLink` — Crc16Ccitt · TransferFrame/FrameConfig · SpacePacket/PacketHeader · FramePacker · PacketExtractor · ChannelCoding(GaloisField256 · ReedSolomonCodec · Pseudorandomizer · FrameSynchronizer · ChannelCodec) |
 | 제외 | `benchmarks/` (성능 측정용, 배포물이 아니다) |
-| 기준 문서 | `docs/requirements.md` — 기능 요구사항 REQ-* 25개 · 품질 요구사항 QR-01~04 |
+| 기준 문서 | `docs/requirements.md` — 기능 요구사항 REQ-* 26개 · 품질 요구사항 QR-01~04 |
 | 기준 표준 | CCSDS 132.0-B (TM 전송 프레임) · 133.0-B (Space Packet) · 131.0-B 계열 (채널 부호·동기) |
 
 ## 2. 시험 목표

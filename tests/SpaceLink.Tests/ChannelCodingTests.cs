@@ -362,4 +362,90 @@ public class PseudorandomizerTests
                 $"{i} 번째 바이트가 독립 구현과 다르다 (기대 {expected[i]:X2}, 실제 {actual[i]:X2})");
         }
     }
+
+    /// <summary>
+    /// CCSDS 131.0-B-5 §10.4.3 NOTE 2 가 131071 비트 랜덤화기의 처음 40 비트로 싣는 값.
+    /// <c>0001 1100 0111 0001 1011 1001 0001 1011 1010 1001</c>.
+    /// </summary>
+    private static readonly byte[] Standard131071FirstFortyBits = [0x1C, 0x71, 0xB9, 0x1B, 0xA9];
+
+    [Fact]
+    [Trait("Requirement", "REQ-PN-02")]
+    public void Standard_sequence_starts_with_the_forty_bits_the_standard_prints()
+    {
+        // 초기값 문자열을 왼쪽부터 첫 비트로 읽으면 C7 1C 6E 46 EA 가 나온다 — 방향을 틀리면 여기서 드러난다.
+        byte[] actual = Pseudorandomizer.Sequence(5, PseudorandomSequence.Standard131071);
+        Assert.True(Standard131071FirstFortyBits.AsSpan().SequenceEqual(actual),
+            $"131071 비트 수열의 처음 40 비트가 표준의 1C 71 B9 1B A9 와 다르다 (실제 {Convert.ToHexString(actual)})");
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-PN-02")]
+    public void Standard_sequence_matches_an_independent_recurrence_over_the_whole_usable_length()
+    {
+        // 기준 구현이 표준과 같은지 먼저 못 박는다.
+        Assert.True(Standard131071FirstFortyBits.AsSpan().SequenceEqual(Downlink.ReferencePn131071Sequence(5)),
+            "시험 쪽 기준 수열이 표준의 처음 40 비트와 다르다");
+
+        // 쓸 수 있는 길이 전부(16,383 바이트) — 표준의 최대 코드블록(I = 8, 2,040 바이트)을 넉넉히 덮는다.
+        int length = Pseudorandomizer.Standard131071MaxBytes;
+        byte[] expected = Downlink.ReferencePn131071Sequence(length);
+        byte[] actual = Pseudorandomizer.Sequence(length, PseudorandomSequence.Standard131071);
+        int firstDifference = expected.AsSpan().CommonPrefixLength(actual);
+        Assert.True(firstDifference == length,
+            $"{firstDifference} 번째 바이트부터 독립 구현과 다르다");
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-PN-02")]
+    public void Standard_sequence_is_self_inverse_has_the_full_period_and_is_not_the_legacy_one()
+    {
+        var rnd = new Random(131071);
+        var original = new byte[2040];                    // 표준의 최대 코드블록 (I = 8)
+        rnd.NextBytes(original);
+        byte[] working = (byte[])original.Clone();
+        Pseudorandomizer.Apply(working, PseudorandomSequence.Standard131071);
+        Assert.NotEqual(original, working);
+        Pseudorandomizer.Apply(working, PseudorandomSequence.Standard131071);
+        Assert.Equal(original, working);
+
+        // 255 비트 수열처럼 255 바이트마다 되풀이되면 안 된다.
+        byte[] sequence = Pseudorandomizer.Sequence(1024, PseudorandomSequence.Standard131071);
+        Assert.False(sequence.AsSpan(0, 255).SequenceEqual(sequence.AsSpan(255, 255)), "255 바이트 주기가 보인다 — 옛 수열이다");
+        Assert.False(sequence.AsSpan(0, 64).SequenceEqual(Pseudorandomizer.Sequence(64, PseudorandomSequence.Legacy255)));
+
+        Assert.Equal(131071, Pseudorandomizer.Standard131071PeriodBits);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => Pseudorandomizer.Apply(new byte[Pseudorandomizer.Standard131071MaxBytes + 1], PseudorandomSequence.Standard131071));
+    }
+
+    [Theory]
+    [Trait("Requirement", "REQ-PN-02")]
+    [InlineData(PseudorandomSequence.Standard131071)]
+    [InlineData(PseudorandomSequence.Legacy255)]
+    public void Channel_codec_randomizes_the_codeblock_with_the_chosen_sequence(PseudorandomSequence sequence)
+    {
+        // CADU = ASM + (RS 코드블록 ⊕ PN 수열). RS 부호기를 따로 불러 코드블록을 만들고 수열을 걷어 내면 같아야 한다.
+        // 기본값이 표준(131071)인지도 같이 본다 — 수열 종류는 물리 채널마다 미리 정하는 값이다(§10.1).
+        const int frameLength = 128;
+        var frame = new byte[frameLength];
+        new Random(10431).NextBytes(frame);
+
+        var codec = sequence == PseudorandomSequence.Standard131071
+            ? new ChannelCodec(frameLength)                          // 기본값
+            : new ChannelCodec(frameLength, sequence: sequence);
+        byte[] cadu = codec.EncodeCadu(frame);
+
+        var reedSolomon = new ReedSolomonCodec(1, ReedSolomonCodec.DataSymbolsPerCodeword - frameLength);
+        byte[] codeblock = reedSolomon.Encode(frame);
+        byte[] pn = Pseudorandomizer.Sequence(codeblock.Length, sequence);
+        for (int i = 0; i < codeblock.Length; i++)
+        {
+            codeblock[i] ^= pn[i];
+        }
+
+        Assert.True(codeblock.AsSpan().SequenceEqual(cadu.AsSpan(FrameSynchronizer.MarkerLength)),
+            $"CADU 의 코드블록이 RS 코드블록 ⊕ {sequence} 수열과 다르다");
+        Assert.Equal(frame, codec.DecodeCodeblock(cadu.AsSpan(FrameSynchronizer.MarkerLength)).TransferFrame);
+    }
 }

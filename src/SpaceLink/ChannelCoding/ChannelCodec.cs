@@ -21,8 +21,11 @@ public sealed class ChannelCodec
 {
     private readonly ReedSolomonCodec _reedSolomon;
     private readonly bool _randomize;
+    private readonly PseudorandomSequence _sequence;
 
-    public ChannelCodec(int transferFrameLength, int interleavingDepth = 1, bool randomize = true)
+    /// <param name="sequence">PN 수열 — 기본은 표준의 131071 비트(§10.4.1). 255 비트는 옛 시스템 호환용이다(§10.4.2).</param>
+    public ChannelCodec(int transferFrameLength, int interleavingDepth = 1, bool randomize = true,
+        PseudorandomSequence sequence = PseudorandomSequence.Standard131071)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(transferFrameLength, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(interleavingDepth, 1);
@@ -44,6 +47,7 @@ public sealed class ChannelCodec
 
         _reedSolomon = new ReedSolomonCodec(interleavingDepth, virtualFill);
         _randomize = randomize;
+        _sequence = sequence;
         TransferFrameLength = transferFrameLength;
     }
 
@@ -65,7 +69,7 @@ public sealed class ChannelCodec
         byte[] codeblock = _reedSolomon.Encode(transferFrame);
         if (_randomize)
         {
-            Pseudorandomizer.Apply(codeblock);
+            Pseudorandomizer.Apply(codeblock, _sequence);
         }
 
         var cadu = new byte[CaduLength];
@@ -85,7 +89,7 @@ public sealed class ChannelCodec
         var working = codeblock.ToArray();
         if (_randomize)
         {
-            Pseudorandomizer.Apply(working);
+            Pseudorandomizer.Apply(working, _sequence);
         }
 
         var frame = new byte[TransferFrameLength];
