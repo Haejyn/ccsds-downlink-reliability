@@ -155,3 +155,11 @@ CI: ubuntu · windows 시험, 커버리지 · 추적 · 재현성 검사, 할당
 ## 관련 프로젝트
 
 [orbit-pass-sim](https://github.com/Haejyn/orbit-pass-sim): 위성 궤도 전파 · 지상국 패스 예측 (Java)
+
+## 라이선스
+
+- 코드: [MIT](LICENSE)
+- 시험 자료 (`tests/SpaceLink.Tests/golden/`): 원 라이선스 유지 · [출처](tests/SpaceLink.Tests/golden/SOURCES.md)
+  - `eirsat1_*`: CC BY-SA 4.0 (SatNOGS)
+  - `astrocast_9k6_bits.bin`: Unlicense (satellite-recordings)
+  - `libfec_rs_vectors.txt`: libfec 출력 데이터 (libfec 코드 미포함)
