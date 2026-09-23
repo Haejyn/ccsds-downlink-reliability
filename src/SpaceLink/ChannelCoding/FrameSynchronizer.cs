@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.Runtime.InteropServices;
+
 namespace SpaceLink.ChannelCoding;
 
 /// <summary>프레임 동기 상태기계의 상태.</summary>
@@ -196,37 +199,42 @@ public sealed class FrameSynchronizer
         _consumedBits += dropBytes * 8;
     }
 
-    private bool ReadBit(long bitIndex)
-    {
-        long offset = bitIndex - _consumedBits;
-        int byteIndex = (int)(offset >> 3);
-        int bitInByte = 7 - (int)(offset & 7);
-        return ((_buffer[byteIndex] >> bitInByte) & 1) == 1;
-    }
-
+    /// <summary>
+    /// bitIndex 부터 32 비트 — 바이트 다섯 개를 한 번에 읽어 비트 오프셋만큼 민다. 예전에는 비트 하나씩 32 번 읽었다
+    /// (탐색 중에는 비트마다 불리므로, 동기기가 체인 시간의 7 % 에서 RS 를 빠르게 한 뒤 절반으로 올라섰다 — §8.6).
+    /// </summary>
     private uint ReadUInt32(long bitIndex)
     {
-        uint value = 0;
-        for (int i = 0; i < 32; i++)
+        ReadOnlySpan<byte> buffer = CollectionsMarshal.AsSpan(_buffer);
+        long offset = bitIndex - _consumedBits;
+        int byteIndex = (int)(offset >> 3);
+        int shift = (int)(offset & 7);
+        ulong window = BinaryPrimitives.ReadUInt32BigEndian(buffer[byteIndex..]);
+        if (shift != 0)
         {
-            value = (value << 1) | (ReadBit(bitIndex + i) ? 1u : 0u);
+            window = (window << 8) | buffer[byteIndex + 4];
+            return (uint)(window >> (8 - shift));
         }
 
-        return value;
+        return (uint)window;
     }
 
+    /// <summary>bitIndex 부터 count 바이트. 바이트 경계에 맞으면 그대로 복사하고, 아니면 이웃한 두 바이트를 비트 오프셋만큼 이어 붙인다.</summary>
     private byte[] ReadBytes(long bitIndex, int count)
     {
+        ReadOnlySpan<byte> buffer = CollectionsMarshal.AsSpan(_buffer);
+        long offset = bitIndex - _consumedBits;
+        int byteIndex = (int)(offset >> 3);
+        int shift = (int)(offset & 7);
+        if (shift == 0)
+        {
+            return buffer.Slice(byteIndex, count).ToArray();
+        }
+
         var bytes = new byte[count];
         for (int i = 0; i < count; i++)
         {
-            byte value = 0;
-            for (int bit = 0; bit < 8; bit++)
-            {
-                value = (byte)((value << 1) | (ReadBit(bitIndex + ((long)i * 8) + bit) ? 1 : 0));
-            }
-
-            bytes[i] = value;
+            bytes[i] = (byte)((buffer[byteIndex + i] << shift) | (buffer[byteIndex + i + 1] >> (8 - shift)));
         }
 
         return bytes;

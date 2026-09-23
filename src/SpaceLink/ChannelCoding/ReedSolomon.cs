@@ -242,27 +242,7 @@ public sealed class ReedSolomonCodec
     {
         corrected = 0;
         Span<byte> syndromes = stackalloc byte[ParitySymbolsPerCodeword];
-        bool clean = true;
-        for (int n = 0; n < ParitySymbolsPerCodeword; n++)
-        {
-            byte x = RootAt(n);
-            byte value = 0;
-
-            // Horner 는 높은 차수부터 곱해 내려온다 — 앞쪽 채움(0)은 value 를 0 으로 둔 채 지나가므로 건너뛰어도 같다.
-            // 신드롬 계산이 수신 체인 시간의 대부분이라, 128 바이트 프레임(채움 95 심볼)이면 곱셈이 37 % 준다.
-            for (int i = fill; i < SymbolsPerCodeword; i++)
-            {
-                value = (byte)(GaloisField256.Multiply(value, x) ^ codeword[i]);
-            }
-
-            syndromes[n] = value;
-            if (value != 0)
-            {
-                clean = false;
-            }
-        }
-
-        if (clean)
+        if (Syndromes.Compute(codeword, fill, syndromes))
         {
             return true;
         }
@@ -275,12 +255,38 @@ public sealed class ReedSolomonCodec
 
         Span<int> positions = stackalloc int[CorrectableSymbols];
         int found = 0;
+        // Chien 탐색 — Λ(β^-e) = Σ λ_j·β^(-e·j) 를 e 마다 새로 곱하지 않고, 항마다 로그를 들고 다니며 한 칸에 −11·j 씩 더한다.
+        // 차수(errorCount)까지만 본다 — Λ 는 33 칸이지만 위쪽은 0 이다. 곱셈 대신 덧셈·표 조회라 정정 경로가 빨라진다(§8.6).
+        Span<int> termLogs = stackalloc int[errorCount + 1];
+        Span<int> termSteps = stackalloc int[errorCount + 1];
+        for (int j = 0; j <= errorCount; j++)
+        {
+            termLogs[j] = lambda[j] == 0 ? -1 : GaloisField256.Log(lambda[j]);
+            termSteps[j] = (GaloisField256.NonZeroElements - (RootSpacing * j % GaloisField256.NonZeroElements)) % GaloisField256.NonZeroElements;
+        }
+
         // 전송된 자리(인덱스 ≥ fill, 곧 exponent ≤ 254 − fill)에서만 찾는다. 근이 채움 자리에 있으면 여기서 못 찾아
         // found 가 errorCount 보다 작아지고 아래에서 실패로 빠진다 — 0 이 확실한 자리로 "정정" 하면 다른 부호어로 가는 것이다.
-        for (int exponent = 0; exponent < SymbolsPerCodeword - fill; exponent++)
+        // 근을 errorCount 개 다 찾으면 멈춘다 — 차수보다 많은 근은 없으므로 남은 자리를 볼 필요가 없다(평균 절반을 건너뛴다).
+        for (int exponent = 0; exponent < SymbolsPerCodeword - fill && found < errorCount; exponent++)
         {
             // Λ(β^-exponent) == 0 이면 x^exponent 자리에 오류가 있다. β = α^11 이 근의 간격이다.
-            if (Evaluate(lambda, GaloisField256.Exp(-RootSpacing * exponent)) != 0)
+            byte value = 0;
+            for (int j = 0; j <= errorCount; j++)
+            {
+                if (termLogs[j] >= 0)
+                {
+                    // 로그는 [0, 255) 안에 두고(한 칸에 255 미만을 더하므로 한 번 빼면 된다) 표를 바로 찾는다 — Exp 의 나머지 연산을 피한다.
+                    value ^= GaloisField256.ExpInRange(termLogs[j]);
+                    termLogs[j] += termSteps[j];
+                    if (termLogs[j] >= GaloisField256.NonZeroElements)
+                    {
+                        termLogs[j] -= GaloisField256.NonZeroElements;
+                    }
+                }
+            }
+
+            if (value != 0)
             {
                 continue;
             }
@@ -296,8 +302,8 @@ public sealed class ReedSolomonCodec
             return false;
         }
 
-        byte[] omega = ErrorEvaluator(syndromes, lambda);
-        byte[] derivative = FormalDerivative(lambda);
+        byte[] omega = ErrorEvaluator(syndromes, lambda, errorCount);
+        byte[] derivative = FormalDerivative(lambda, errorCount);
         for (int k = 0; k < found; k++)
         {
             byte inverseRoot = GaloisField256.Exp(-RootSpacing * positions[k]);
@@ -326,6 +332,7 @@ public sealed class ReedSolomonCodec
     {
         var current = new byte[ParitySymbolsPerCodeword + 1];
         var previous = new byte[ParitySymbolsPerCodeword + 1];
+        var spare = new byte[ParitySymbolsPerCodeword + 1];
         current[0] = 1;
         previous[0] = 1;
         int length = 0;
@@ -346,16 +353,24 @@ public sealed class ReedSolomonCodec
                 continue;
             }
 
+            // Λ ← Λ − (d/b)·x^shift·B. 길이가 늘 때만 옛 Λ 를 B 로 넘기므로, 그때만 복사해 둔다
+            // (예전에는 매 단계 배열을 복제했다 — 정정 경로 할당의 대부분이었다, §8.6).
             byte scale = GaloisField256.Divide(discrepancy, lastDiscrepancy);
-            var updated = (byte[])current.Clone();
-            for (int i = 0; i + shift < updated.Length; i++)
+            bool lengthens = 2 * length <= n;
+            if (lengthens)
             {
-                updated[i + shift] ^= GaloisField256.Multiply(scale, previous[i]);
+                current.CopyTo(spare, 0);
             }
 
-            if (2 * length <= n)
+            // B 의 차수는 지금 Λ 의 길이를 넘지 않는다 — 그 위는 0 이라 33 칸을 다 돌 필요가 없다.
+            for (int i = 0; i <= length && i + shift < current.Length; i++)
             {
-                previous = current;
+                current[i + shift] ^= GaloisField256.Multiply(scale, previous[i]);
+            }
+
+            if (lengthens)
+            {
+                (previous, spare) = (spare, previous);
                 lastDiscrepancy = discrepancy;
                 length = n + 1 - length;
                 shift = 1;
@@ -364,8 +379,6 @@ public sealed class ReedSolomonCodec
             {
                 shift++;
             }
-
-            current = updated;
         }
 
         errorCount = length;
@@ -373,13 +386,14 @@ public sealed class ReedSolomonCodec
     }
 
     /// <summary>
-    /// Ω(x) = [S(x)·Λ(x)] mod x^32. Λ 는 언제나 <c>ParitySymbolsPerCodeword + 1</c> 칸이다(<see cref="BerlekampMassey"/>) —
-    /// 그래서 안쪽 합의 상한이 <c>j &lt;= i</c> 하나로 충분하다 (i ≤ 31 &lt; 33).
+    /// Ω(x) = [S(x)·Λ(x)] mod x^32 의 아래 L 개 계수(L = Λ 의 길이 = errorCount). Berlekamp-Massey 가 낸 Λ 는
+    /// L … 31 차의 계수가 전부 0 이 되도록 만들어진 것이라(그것이 "S 를 길이 L 의 LFSR 로 생성한다" 는 뜻이다) deg Ω &lt; L 이다.
+    /// 32 칸을 다 구해 평가하던 것을 L 칸만 구한다 — 결과는 같고 정정 경로의 곱셈이 준다(§8.6).
     /// </summary>
-    private static byte[] ErrorEvaluator(ReadOnlySpan<byte> syndromes, byte[] lambda)
+    private static byte[] ErrorEvaluator(ReadOnlySpan<byte> syndromes, byte[] lambda, int errorCount)
     {
-        var omega = new byte[ParitySymbolsPerCodeword];
-        for (int i = 0; i < ParitySymbolsPerCodeword; i++)
+        var omega = new byte[errorCount];
+        for (int i = 0; i < errorCount; i++)
         {
             byte sum = 0;
             for (int j = 0; j <= i; j++)
@@ -394,12 +408,12 @@ public sealed class ReedSolomonCodec
     }
 
     /// <summary>
-    /// GF(2^m) 에서 형식 미분 — 짝수 차수 항은 사라진다. 입력은 언제나 33 칸의 Λ 이므로 결과는 32 칸이다.
+    /// GF(2^m) 에서 형식 미분 — 짝수 차수 항은 사라진다. 차수 L 인 Λ 의 미분은 L 칸(차수 L−1)이면 담긴다.
     /// </summary>
-    private static byte[] FormalDerivative(byte[] polynomial)
+    private static byte[] FormalDerivative(byte[] polynomial, int errorCount)
     {
-        var derivative = new byte[ParitySymbolsPerCodeword];
-        for (int i = 1; i < polynomial.Length; i += 2)
+        var derivative = new byte[errorCount];
+        for (int i = 1; i <= errorCount; i += 2)
         {
             derivative[i - 1] = polynomial[i];
         }

@@ -26,6 +26,9 @@ public class ChannelChainBenchmark
     /// <summary>스트림 앞의 잡음 — 동기기가 Search → Check → Lock 을 한 번 실제로 밟게 한다.</summary>
     private const int LeadingNoiseBytes = 5;
 
+    /// <summary>병렬 복호에 한 번에 넘기는 코드블록 수 — 지상국 수신기가 버퍼 하나를 채워 넘기는 단위를 흉내 낸다.</summary>
+    private const int ParallelBatch = 256;
+
     private static readonly ChannelCodec Codec = new(SampleTraffic.FrameLength, interleavingDepth: 1, randomize: true);
 
     private byte[] _clean = [];
@@ -56,7 +59,8 @@ public class ChannelChainBenchmark
 
         // 무엇을 재는지 확인한다 — 체인이 원래 패킷을 전부 복원하지 못하면 측정이 아니라 오작동이다.
         int expected = CountPackets(frames);
-        if (Receive(_clean) != expected || Receive(_corrupted) != expected)
+        if (Receive(_clean) != expected || Receive(_corrupted) != expected
+            || ReceiveParallel(_clean) != expected || ReceiveParallel(_corrupted) != expected)
         {
             throw new InvalidOperationException("체인이 프레임을 전부 복원하지 못했다 — 측정 입력이 잘못됐다");
         }
@@ -69,6 +73,14 @@ public class ChannelChainBenchmark
     /// <summary>부호어마다 심볼 오류 8 개 — Berlekamp-Massey · Chien · Forney 가 매번 돈다.</summary>
     [Benchmark(OperationsPerInvoke = Cadus)]
     public int DecodeChainWithSymbolErrors() => Receive(_corrupted);
+
+    /// <summary>오류 없음, RS 복호만 코어 여러 개에 나눈다 — 동기·추출은 순서가 있어 한 줄로 두고, 서로 독립인 코드블록 복호만 병렬로.</summary>
+    [Benchmark(OperationsPerInvoke = Cadus)]
+    public int DecodeChainParallel() => ReceiveParallel(_clean);
+
+    /// <summary>심볼 오류 8 개, RS 복호를 병렬로 — 정정이 도는 경로의 병렬 처리량.</summary>
+    [Benchmark(OperationsPerInvoke = Cadus)]
+    public int DecodeChainWithSymbolErrorsParallel() => ReceiveParallel(_corrupted);
 
     /// <summary>ASM 동기 → PN 되돌림 → RS 복호 → 패킷 추출. 수신기 상태는 호출마다 새로 만든다.</summary>
     private static int Receive(byte[] stream)
@@ -89,6 +101,49 @@ public class ChannelChainBenchmark
             }
         }
 
+        return packets;
+    }
+
+    /// <summary>
+    /// 동기기가 내보낸 코드블록을 <see cref="ParallelBatch"/> 장씩 모아 <c>Parallel.For</c> 로 복호하고, 추출은 원래 순서대로 한 줄로 한다.
+    /// <see cref="ChannelCodec"/> 는 생성 뒤 상태가 없어(표는 전부 정적 읽기 전용) 여러 스레드가 한 인스턴스를 같이 쓴다.
+    /// </summary>
+    private static int ReceiveParallel(byte[] stream)
+    {
+        var synchronizer = new FrameSynchronizer(Codec.CodeblockLength);
+        var extractor = new PacketExtractor(SampleTraffic.Config);
+        var pending = new List<byte[]>(ParallelBatch);
+        var decoded = new ChannelDecodeResult[ParallelBatch];
+        int packets = 0;
+        for (int offset = 0; offset < stream.Length; offset += ChunkBytes)
+        {
+            int length = Math.Min(ChunkBytes, stream.Length - offset);
+            foreach (byte[] codeblock in synchronizer.Process(stream.AsSpan(offset, length)))
+            {
+                pending.Add(codeblock);
+                if (pending.Count == ParallelBatch)
+                {
+                    packets += DecodeBatch(pending, decoded, extractor);
+                }
+            }
+        }
+
+        return packets + DecodeBatch(pending, decoded, extractor);
+    }
+
+    private static int DecodeBatch(List<byte[]> pending, ChannelDecodeResult[] decoded, PacketExtractor extractor)
+    {
+        Parallel.For(0, pending.Count, i => decoded[i] = Codec.DecodeCodeblock(pending[i]));
+        int packets = 0;
+        for (int i = 0; i < pending.Count; i++)
+        {
+            if (decoded[i].Succeeded && decoded[i].TransferFrame is not null)
+            {
+                packets += extractor.Process(decoded[i].TransferFrame!).Packets.Count;
+            }
+        }
+
+        pending.Clear();
         return packets;
     }
 
