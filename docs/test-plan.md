@@ -8,7 +8,7 @@
 |---|---|
 | SW | `SpaceLink` — Crc16Ccitt · TransferFrame/FrameConfig · SpacePacket/PacketHeader · FramePacker · PacketExtractor · ChannelCoding(GaloisField256 · ReedSolomonCodec · DualBasisTransform · Pseudorandomizer · FrameSynchronizer · ChannelCodec) |
 | 제외 | `benchmarks/` (성능 측정용, 배포물이 아니다) |
-| 기준 문서 | `docs/requirements.md` — 기능 요구사항 REQ-* 29개 · 품질 요구사항 QR-01~04 |
+| 기준 문서 | `docs/requirements.md` — 기능 요구사항 REQ-* 30개 · 품질 요구사항 QR-01~04 |
 | 기준 표준 | CCSDS 132.0-B (TM 전송 프레임) · 133.0-B (Space Packet) · 131.0-B 계열 (채널 부호·동기) |
 
 ## 2. 시험 목표
@@ -36,6 +36,7 @@
 | 표준 값 대조 | CCSDS 131.0-B-5 부속서 G 계수표 · 부속서 F 행렬 · PN 처음 40 비트 | RS-01 · PN-01 · PN-02 |
 | 외부 구현 대조 | libfec(고정 커밋) 가 만든 기준 벡터 — CI 가 다시 만들어 대조 | RS-06 |
 | 실제 신호 | 실제 위성(Astrocast 0.1) 녹음을 복조한 비트열, 송신기가 계산한 프레임 CRC — CI 가 다시 복조해 대조 | CAP-01 |
+| 독립 지상국 대조 | 잡음이 섞인 실제 패스(EIRSAT-1, SatNOGS)를 복호해 **같은 녹음을 다른 지상국이 복호한 프레임**과 대조, 그 지상국이 놓친 프레임은 카운트·패킷 연속성으로 확인 | CAP-02 |
 | 벤치마크 | BenchmarkDotNet 단일 스레드 + MemoryDiagnoser | EXT-08 |
 
 ## 4. 시험 환경

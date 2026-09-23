@@ -46,7 +46,7 @@ jobs:
       - name: Real capture bitstream is reproducible
         if: runner.os == 'Linux'
         run: |
-          python -m pip install --quiet numpy
+          python -m pip install --quiet numpy soundfile
           python tools/gen_golden_capture.py --check
       - name: Job summary
         if: always()
