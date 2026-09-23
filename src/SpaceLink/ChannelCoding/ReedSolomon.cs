@@ -25,6 +25,11 @@ public readonly record struct ReedSolomonResult(bool Succeeded, int CorrectedSym
 /// X_k^(1−FCR) 인수가 더 필요하다. FCR = 1(교과서에서 흔한 α^1…α^2t 관례, 이 코드가 전에 쓰던 것)이면
 /// 이 인수가 1 이 되어 사라진다 — 그래서 이전 구현은 이 인수 없이도 맞았다.
 ///
+/// **짧은 코드블록(가상 채움)** — 전송 프레임이 223·I 보다 짧으면 코드블록 **앞쪽** Q 심볼을 0 으로 두고
+/// 부호화하되, 그 0 은 **보내지 않는다**(§4.3.7, Q 는 I 의 배수). 복호기는 같은 자리에 0 을 되살려 복호하고,
+/// 오류 위치가 채움 자리로 나오면 **실패로 알린다** — 그 자리는 0 인 게 확실하니 그리로 "정정" 하는 것은
+/// 다른 부호어로 잘못 가는 것이다.
+///
 /// ⚠ 남은 한계: 표준의 비트 전송 순서(§4.3.9.2 "z0 이 먼저")를 이 코드베이스의 바이트 저장 관례로
 /// 옮긴 것은 구현의 선택이며, 실제로 캡처한 CCSDS 비트열과 대조하지는 못했다.
 /// </summary>
@@ -45,19 +50,38 @@ public sealed class ReedSolomonCodec
 
     private static readonly byte[] Generator = BuildGenerator();
 
-    public ReedSolomonCodec(int interleavingDepth = 1)
+    /// <param name="interleavingDepth">인터리빙 깊이 I.</param>
+    /// <param name="virtualFill">
+    /// 가상 채움 Q (심볼) — 코드블록 앞쪽에서 0 으로 치고 보내지 않는 심볼 수. I 의 배수이고 223·I 보다 작아야 한다(§4.3.7.3).
+    /// </param>
+    public ReedSolomonCodec(int interleavingDepth = 1, int virtualFill = 0)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(interleavingDepth, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(virtualFill);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(virtualFill, DataSymbolsPerCodeword * interleavingDepth);
+        if (virtualFill % interleavingDepth != 0)
+        {
+            throw new ArgumentException(
+                $"virtual fill ({virtualFill}) must be a multiple of the interleaving depth ({interleavingDepth})", nameof(virtualFill));
+        }
+
         InterleavingDepth = interleavingDepth;
+        VirtualFill = virtualFill;
     }
 
     public int InterleavingDepth { get; }
 
-    /// <summary>부호화 뒤 코드블록 길이 (바이트).</summary>
-    public int CodeblockLength => SymbolsPerCodeword * InterleavingDepth;
+    /// <summary>가상 채움 Q — 코드블록 앞쪽의 보내지 않는 0 심볼 수.</summary>
+    public int VirtualFill { get; }
+
+    /// <summary>부호화 뒤 (전송되는) 코드블록 길이 (바이트).</summary>
+    public int CodeblockLength => (SymbolsPerCodeword * InterleavingDepth) - VirtualFill;
 
     /// <summary>코드블록에 담기는 데이터 길이 (바이트).</summary>
-    public int DataLength => DataSymbolsPerCodeword * InterleavingDepth;
+    public int DataLength => (DataSymbolsPerCodeword * InterleavingDepth) - VirtualFill;
+
+    /// <summary>부호어 하나(한 레인)에서 가상 채움이 차지하는 앞쪽 심볼 수 = Q / I.</summary>
+    private int FillPerCodeword => VirtualFill / InterleavingDepth;
 
     /// <summary>n 번째(0-index) 부호 근 β^(112+n) = α^(11·(112+n)). n = 0 … 31.</summary>
     internal static byte RootAt(int n) => GaloisField256.Exp(RootSpacing * (FirstConsecutiveRoot + n));
@@ -72,27 +96,29 @@ public sealed class ReedSolomonCodec
 
         var codeblock = new byte[CodeblockLength];
         Span<byte> codeword = stackalloc byte[SymbolsPerCodeword];
+        int fill = FillPerCodeword;
         for (int lane = 0; lane < InterleavingDepth; lane++)
         {
+            // 앞쪽 fill 심볼은 가상 채움 — 0 으로 두고 부호화한다(0 은 두 기저 모두에서 0 이다).
             codeword.Clear();
-            for (int i = 0; i < DataSymbolsPerCodeword; i++)
+            for (int i = fill; i < DataSymbolsPerCodeword; i++)
             {
                 // 전송(이중 기저) 그대로 받은 정보 심볼을, 부호화 대수(관례 기저)를 하기 전에 바꾼다.
-                codeword[i] = DualBasisTransform.ToConventional(data[(i * InterleavingDepth) + lane]);
+                codeword[i] = DualBasisTransform.ToConventional(data[TransmittedIndex(i, lane)]);
             }
 
             EncodeCodeword(codeword);
 
-            for (int i = 0; i < DataSymbolsPerCodeword; i++)
+            for (int i = fill; i < DataSymbolsPerCodeword; i++)
             {
                 // 정보 심볼은 원본 그대로 내보낸다 — 관례로 바꿨다 다시 이중으로 되돌리면 항등이다.
-                codeblock[(i * InterleavingDepth) + lane] = data[(i * InterleavingDepth) + lane];
+                codeblock[TransmittedIndex(i, lane)] = data[TransmittedIndex(i, lane)];
             }
 
             for (int i = DataSymbolsPerCodeword; i < SymbolsPerCodeword; i++)
             {
                 // 새로 계산한 패리티만 이중 기저로 바꿔 내보낸다.
-                codeblock[(i * InterleavingDepth) + lane] = DualBasisTransform.ToDualBasis(codeword[i]);
+                codeblock[TransmittedIndex(i, lane)] = DualBasisTransform.ToDualBasis(codeword[i]);
             }
         }
 
@@ -114,29 +140,38 @@ public sealed class ReedSolomonCodec
 
         int corrected = 0;
         Span<byte> codeword = stackalloc byte[SymbolsPerCodeword];
+        int fill = FillPerCodeword;
         for (int lane = 0; lane < InterleavingDepth; lane++)
         {
-            for (int i = 0; i < SymbolsPerCodeword; i++)
+            // 보내지 않은 가상 채움 자리를 0 으로 되살린다.
+            codeword[..fill].Clear();
+            for (int i = fill; i < SymbolsPerCodeword; i++)
             {
                 // 오류가 정보 심볼에 있든 패리티에 있든, 부호화 대수는 전부 관례 기저에서 한다.
-                codeword[i] = DualBasisTransform.ToConventional(codeblock[(i * InterleavingDepth) + lane]);
+                codeword[i] = DualBasisTransform.ToConventional(codeblock[TransmittedIndex(i, lane)]);
             }
 
-            if (!DecodeCodeword(codeword, out int fixedSymbols))
+            if (!DecodeCodeword(codeword, fill, out int fixedSymbols))
             {
                 return new ReedSolomonResult(false, corrected);
             }
 
             corrected += fixedSymbols;
-            for (int i = 0; i < DataSymbolsPerCodeword; i++)
+            for (int i = fill; i < DataSymbolsPerCodeword; i++)
             {
                 // 정정된 정보 심볼을 원래 표현(이중 기저)으로 되돌린다.
-                data[(i * InterleavingDepth) + lane] = DualBasisTransform.ToDualBasis(codeword[i]);
+                data[TransmittedIndex(i, lane)] = DualBasisTransform.ToDualBasis(codeword[i]);
             }
         }
 
         return new ReedSolomonResult(true, corrected);
     }
+
+    /// <summary>
+    /// 레인 lane 의 부호어 심볼 i 가 전송 코드블록(또는 데이터)에서 놓이는 자리.
+    /// 채움이 없으면 i·I + lane 이고, 앞쪽 Q = fill·I 자리가 빠진 만큼 당겨진다 (§4.3.7.4).
+    /// </summary>
+    private int TransmittedIndex(int i, int lane) => ((i - FillPerCodeword) * InterleavingDepth) + lane;
 
     /// <summary>g(x) = Π (x − β^(112+n)), n = 0 … 31. 계수는 높은 차수부터.</summary>
     private static byte[] BuildGenerator()
@@ -182,8 +217,11 @@ public sealed class ReedSolomonCodec
         data.CopyTo(codeword[..DataSymbolsPerCodeword]);
     }
 
-    /// <summary>신드롬 → Berlekamp-Massey → Chien → Forney. 정정에 실패하면 false.</summary>
-    private static bool DecodeCodeword(Span<byte> codeword, out int corrected)
+    /// <summary>
+    /// 신드롬 → Berlekamp-Massey → Chien → Forney. 정정에 실패하면 false.
+    /// 앞쪽 fill 심볼은 가상 채움(0 이 확실한 자리)이다.
+    /// </summary>
+    private static bool DecodeCodeword(Span<byte> codeword, int fill, out int corrected)
     {
         corrected = 0;
         Span<byte> syndromes = stackalloc byte[ParitySymbolsPerCodeword];
@@ -192,7 +230,10 @@ public sealed class ReedSolomonCodec
         {
             byte x = RootAt(n);
             byte value = 0;
-            for (int i = 0; i < SymbolsPerCodeword; i++)
+
+            // Horner 는 높은 차수부터 곱해 내려온다 — 앞쪽 채움(0)은 value 를 0 으로 둔 채 지나가므로 건너뛰어도 같다.
+            // 신드롬 계산이 수신 체인 시간의 대부분이라, 128 바이트 프레임(채움 95 심볼)이면 곱셈이 37 % 준다.
+            for (int i = fill; i < SymbolsPerCodeword; i++)
             {
                 value = (byte)(GaloisField256.Multiply(value, x) ^ codeword[i]);
             }
@@ -217,7 +258,9 @@ public sealed class ReedSolomonCodec
 
         Span<int> positions = stackalloc int[CorrectableSymbols];
         int found = 0;
-        for (int exponent = 0; exponent < SymbolsPerCodeword; exponent++)
+        // 전송된 자리(인덱스 ≥ fill, 곧 exponent ≤ 254 − fill)에서만 찾는다. 근이 채움 자리에 있으면 여기서 못 찾아
+        // found 가 errorCount 보다 작아지고 아래에서 실패로 빠진다 — 0 이 확실한 자리로 "정정" 하면 다른 부호어로 가는 것이다.
+        for (int exponent = 0; exponent < SymbolsPerCodeword - fill; exponent++)
         {
             // Λ(β^-exponent) == 0 이면 x^exponent 자리에 오류가 있다. β = α^11 이 근의 간격이다.
             if (Evaluate(lambda, GaloisField256.Exp(-RootSpacing * exponent)) != 0)
