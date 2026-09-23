@@ -267,8 +267,7 @@ public sealed class ReedSolomonCodec
 
         // 전송된 자리(인덱스 ≥ fill, 곧 exponent ≤ 254 − fill)에서만 찾는다. 근이 채움 자리에 있으면 여기서 못 찾아
         // found 가 errorCount 보다 작아지고 아래에서 실패로 빠진다 — 0 이 확실한 자리로 "정정" 하면 다른 부호어로 가는 것이다.
-        // 근을 errorCount 개 다 찾으면 멈춘다 — 차수보다 많은 근은 없으므로 남은 자리를 볼 필요가 없다(평균 절반을 건너뛴다).
-        for (int exponent = 0; exponent < SymbolsPerCodeword - fill && found < errorCount; exponent++)
+        for (int exponent = 0; exponent < SymbolsPerCodeword - fill; exponent++)
         {
             // Λ(β^-exponent) == 0 이면 x^exponent 자리에 오류가 있다. β = α^11 이 근의 간격이다.
             byte value = 0;
@@ -362,8 +361,7 @@ public sealed class ReedSolomonCodec
                 current.CopyTo(spare, 0);
             }
 
-            // B 의 차수는 지금 Λ 의 길이를 넘지 않는다 — 그 위는 0 이라 33 칸을 다 돌 필요가 없다.
-            for (int i = 0; i <= length && i + shift < current.Length; i++)
+            for (int i = 0; i + shift < current.Length; i++)
             {
                 current[i + shift] ^= GaloisField256.Multiply(scale, previous[i]);
             }
