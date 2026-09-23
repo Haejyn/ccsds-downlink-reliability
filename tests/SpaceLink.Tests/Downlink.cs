@@ -140,4 +140,35 @@ internal static class Downlink
 
         return sequence;
     }
+
+    /// <summary>
+    /// CCSDS 131.0-B-5 §10.4.1 의 131071 비트 PN 수열 — h(x) = x^17 + x^14 + 1, 곧 s[n+17] = s[n+14] ⊕ s[n].
+    /// 구현은 17 비트 정수 레지스터를 오른쪽으로 민다. 여기서는 표준이 적은 초기값 문자열을 **그대로 들고** 비트 배열 위의
+    /// 점화식으로 돌린다 — 문자열의 오른쪽 끝이 첫 비트다(그림의 레지스터가 X17…X1 순서로 적혀 있다).
+    /// </summary>
+    public static byte[] ReferencePn131071Sequence(int length)
+    {
+        const string seed = "11000111000111000";   // 표준 §10.4.3 그대로
+        var bits = new bool[(length * 8) + 17];
+        for (int k = 0; k < 17; k++)
+        {
+            bits[k] = seed[16 - k] == '1';
+        }
+
+        for (int n = 0; n + 17 < bits.Length; n++)
+        {
+            bits[n + 17] = bits[n + 14] ^ bits[n];
+        }
+
+        var sequence = new byte[length];
+        for (int i = 0; i < length * 8; i++)
+        {
+            if (bits[i])
+            {
+                sequence[i / 8] |= (byte)(0x80 >> (i % 8));
+            }
+        }
+
+        return sequence;
+    }
 }
