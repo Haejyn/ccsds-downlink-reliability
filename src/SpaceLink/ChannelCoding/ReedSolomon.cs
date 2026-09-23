@@ -30,8 +30,10 @@ public readonly record struct ReedSolomonResult(bool Succeeded, int CorrectedSym
 /// 오류 위치가 채움 자리로 나오면 **실패로 알린다** — 그 자리는 0 인 게 확실하니 그리로 "정정" 하는 것은
 /// 다른 부호어로 잘못 가는 것이다.
 ///
-/// ⚠ 남은 한계: 표준의 비트 전송 순서(§4.3.9.2 "z0 이 먼저")를 이 코드베이스의 바이트 저장 관례로
-/// 옮긴 것은 구현의 선택이며, 실제로 캡처한 CCSDS 비트열과 대조하지는 못했다.
+/// 공개 구현 libfec(Phil Karn)의 CCSDS RS 실제 출력과 바이트 단위로 대조한다 — 부호화 35 개가 같고, 복호 판정도 같다.
+/// 다만 libfec 는 채움 자리로 가는 정정을 건너뛰고 성공으로 알리는데, 이 구현은 실패로 알린다(<c>LibfecCrossCheckTests</c>).
+///
+/// ⚠ 남은 한계: 실제 위성에서 캡처한 비트열과는 대조하지 못했다.
 /// </summary>
 public sealed class ReedSolomonCodec
 {

@@ -32,4 +32,4 @@
 | REQ-ASM-03 | 마커 손상은 허용치까지 견디고(flywheel), 넘으면 다시 탐색한다. 경계를 버리기로 판정한 자리의 코드블록은 내보내지 않는다 | `FrameSynchronizerTests#Damaged_markers_within_tolerance_keep_the_lock`<br>`FrameSynchronizerTests#Flywheel_keeps_emitting_through_missing_markers_then_gives_up`<br>`FrameSynchronizerTests#A_false_marker_is_dropped_when_the_next_one_does_not_follow`<br>`FrameSynchronizerTests#Giving_up_on_a_boundary_drops_the_codeblock_there_instead_of_emitting_it`<br>`FrameSynchronizerTests#Missing_exactly_the_tolerated_number_of_markers_keeps_the_boundary` | 7/7 | ✅ 통과 |
 | REQ-ASM-04 | 동기기는 스트림 길이와 무관하게 상수 메모리로 동작한다. 계약은 정확한 값이 아니라 유계성이다 | `FrameSynchronizerTests#Buffered_bytes_stay_within_two_cadus_however_long_the_stream_is`<br>`FrameSynchronizerTests#While_searching_only_the_last_bits_a_marker_could_still_start_in_are_kept` | 2/2 | ✅ 통과 |
 
-**요구사항 26개 중 26개 검증됨.**
+**요구사항 27개 중 27개 검증됨.**
