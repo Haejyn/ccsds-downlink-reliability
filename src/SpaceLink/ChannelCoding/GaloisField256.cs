@@ -49,6 +49,9 @@ public static class GaloisField256
         return ExpTable[power];
     }
 
+    /// <summary>α^power, power 가 이미 [0, 255) 안일 때 — 나머지 연산 없이 표만 찾는다(Chien 탐색의 안쪽 루프).</summary>
+    internal static byte ExpInRange(int power) => ExpTable[power];
+
     /// <summary>log_α(value). 0 은 로그가 없다.</summary>
     public static int Log(byte value)
     {

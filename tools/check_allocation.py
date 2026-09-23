@@ -23,7 +23,9 @@ BUDGET = {
     "ExtractorBenchmark.Reassemble": 260,                        # 실측 243 (개선 전 443, docs/test-report.md §8)
     "ExtractorBenchmark.ReassembleWithErrorControl": 260,        # 실측 242
     "ChannelChainBenchmark.DecodeChain": 870,                    # 실측 810 (오류 없음 — ASM·PN·RS 복호·추출, 짧은 코드블록 뒤. 전에는 1,247)
-    "ChannelChainBenchmark.DecodeChainWithSymbolErrors": 2150,   # 실측 2,007 (부호어당 심볼 오류 8 개, 짧은 코드블록 뒤. 전에는 2,443)
+    "ChannelChainBenchmark.DecodeChainWithSymbolErrors": 1140,   # 실측 1,066 (부호어당 심볼 오류 8 개, §8.6 뒤 — Berlekamp-Massey 가 단계마다 배열을 복제하지 않는다. 전에는 2,007)
+    "ChannelChainBenchmark.DecodeChainParallel": 910,            # 실측 827 (RS 복호만 병렬, §8.6. Parallel.For 의 작업 객체가 배치마다 붙어 +10 %)
+    "ChannelChainBenchmark.DecodeChainWithSymbolErrorsParallel": 1195,  # 실측 1,085
 }
 
 
