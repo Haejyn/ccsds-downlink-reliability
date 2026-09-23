@@ -17,7 +17,7 @@ public class ChannelChainBenchmark
     /// <summary>한 번의 측정에서 흘려보내는 CADU 수 = 프레임 수 (<c>OperationsPerInvoke</c> 와 같아야 한다).</summary>
     public const int Cadus = 2_000;
 
-    /// <summary>수신 소켓 한 번 읽기 크기. CADU(259 B)와 나누어떨어지지 않게 둔다 — 조각 경계가 코드블록 한가운데를 가르도록.</summary>
+    /// <summary>수신 소켓 한 번 읽기 크기. CADU(128 B 프레임이면 164 B — 짧은 코드블록)와 나누어떨어지지 않게 둔다 — 조각 경계가 코드블록 한가운데를 가르도록.</summary>
     private const int ChunkBytes = 4_096;
 
     /// <summary>부호어당 주입하는 심볼 오류 수 — 정정 능력 t = 16 의 절반.</summary>
