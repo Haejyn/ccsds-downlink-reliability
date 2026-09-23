@@ -28,7 +28,7 @@ public sealed class ChannelCodec
         PseudorandomSequence sequence = PseudorandomSequence.Standard131071)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(transferFrameLength, 1);
-        ArgumentOutOfRangeException.ThrowIfLessThan(interleavingDepth, 1);
+        ReedSolomonCodec.ValidateInterleavingDepth(interleavingDepth);
         int capacity = ReedSolomonCodec.DataSymbolsPerCodeword * interleavingDepth;
         if (transferFrameLength > capacity)
         {

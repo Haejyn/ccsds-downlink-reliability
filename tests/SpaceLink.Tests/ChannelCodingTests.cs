@@ -92,8 +92,11 @@ public class ReedSolomonTests
     [Theory]
     [Trait("Requirement", "REQ-RS-01")]
     [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
     [InlineData(4)]
     [InlineData(5)]
+    [InlineData(8)]
     public void Encoding_then_decoding_returns_the_original_data(int interleavingDepth)
     {
         var codec = new ReedSolomonCodec(interleavingDepth);
@@ -134,12 +137,42 @@ public class ReedSolomonTests
         }
     }
 
+    [Theory]
+    [Trait("Requirement", "REQ-RS-07")]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(9)]
+    [InlineData(16)]
+    public void Interleaving_depths_the_standard_does_not_allow_are_refused(int depth)
+    {
+        // §4.3.5.1 — I = 1, 2, 3, 4, 5, 8 만. 6·7 은 사이에 낀 값, 9·16 은 8 을 넘는 값이다.
+        // 프레임 길이는 깊이의 배수로 골라, 거부 이유가 가상 채움 규칙이 아니라 깊이 자체임을 분명히 한다.
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => new ReedSolomonCodec(depth));
+        Assert.Equal(depth, ex.ActualValue);
+        ex = Assert.Throws<ArgumentOutOfRangeException>(() => new ChannelCodec(Math.Max(1, depth) * 100, depth));
+        Assert.Equal(depth, ex.ActualValue);
+    }
+
+    [Fact]
+    [Trait("Requirement", "REQ-RS-07")]
+    public void Every_interleaving_depth_the_standard_allows_is_accepted()
+    {
+        Assert.Equal([1, 2, 3, 4, 5, 8], ReedSolomonCodec.AllowedInterleavingDepths);
+        foreach (int depth in ReedSolomonCodec.AllowedInterleavingDepths)
+        {
+            Assert.Equal(255 * depth, new ReedSolomonCodec(depth).CodeblockLength);
+            Assert.Equal(depth * 100, new ChannelCodec(depth * 100, depth).TransferFrameLength);
+        }
+    }
+
     [Fact]
     [Trait("Requirement", "REQ-RS-04")]
     public void Interleaving_spreads_a_burst_so_it_stays_correctable()
     {
         // 인터리빙 깊이 I 면 연속 I·16 심볼 버스트가 부호어마다 16 개씩 흩어진다 — 딱 정정 능력이다.
-        foreach (int depth in new[] { 4, 5 })
+        foreach (int depth in new[] { 2, 4, 5, 8 })
         {
             var codec = new ReedSolomonCodec(depth);
             var rnd = new Random(4242 + depth);
