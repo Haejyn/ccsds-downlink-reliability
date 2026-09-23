@@ -450,6 +450,10 @@ public class PseudorandomizerTests
         Assert.Equal(131071, Pseudorandomizer.Standard131071PeriodBits);
         Assert.Throws<ArgumentOutOfRangeException>(
             () => Pseudorandomizer.Apply(new byte[Pseudorandomizer.Standard131071MaxBytes + 1], PseudorandomSequence.Standard131071));
+        // 길이 검사가 입력을 이름으로 거부해야 한다 — 검사를 지워도 벡터 생성자가 같은 형식의 예외를 던져 뮤턴트가 살아남았다.
+        var tooLong = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Pseudorandomizer.Apply(new byte[Pseudorandomizer.Standard131071MaxBytes + 1], PseudorandomSequence.Standard131071));
+        Assert.Equal("data.Length", tooLong.ParamName);
     }
 
     [Theory]

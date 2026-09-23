@@ -260,9 +260,10 @@ public class FrameSynchronizerTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new FrameSynchronizer(255, lockThreshold: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => new FrameSynchronizer(255, flywheelTolerance: -1));
         Assert.Throws<ArgumentOutOfRangeException>(() => new FrameSynchronizer(255, maxMarkerBitErrors: -1));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new ChannelCodec(0));
+        // 이름까지 본다 — 길이 검사를 지워도 더 깊은 RS 생성자가 같은 형식을 다른 이름(virtualFill)으로 던진다.
+        Assert.Equal("transferFrameLength", Assert.Throws<ArgumentOutOfRangeException>(() => new ChannelCodec(0)).ParamName);
         Assert.Throws<ArgumentOutOfRangeException>(() => new ChannelCodec(100_000));
-        Assert.Throws<ArgumentException>(() => Codec().EncodeCadu(new byte[10]));
+        Assert.Equal("transferFrame", Assert.Throws<ArgumentException>(() => Codec().EncodeCadu(new byte[10])).ParamName);
         Assert.Throws<ArgumentException>(() => Codec().DecodeCodeblock(new byte[10]));
     }
 

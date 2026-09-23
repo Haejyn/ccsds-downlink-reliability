@@ -101,6 +101,48 @@ public class FastPathTests
         }
     }
 
+    [Fact]
+    [Trait("Requirement", "REQ-RS-02")]
+    public void Errors_whose_first_syndrome_is_zero_are_still_corrected()
+    {
+        // Berlekamp-Massey 는 첫 불일치(discrepancy)가 0 이면 그 단계를 건너뛴다. 무작위 오류로 첫 신드롬이 0 이 될 확률은 1/256 이라
+        // 기존 시험은 한 번도 그 길을 타지 않았고, 건너뛰는 `continue` 를 지운 뮤턴트가 살아남았다 — 지우면 0 으로 나누게 된다.
+        // 오류 두 개를 무작위로 넣어 보며 S0 = 0 인 모양을 찾아(시험 안의 독립 Horner 로 판정) 그 모양이 정정되는지 본다.
+        var codec = new ReedSolomonCodec();
+        var rnd = new Random(1120);
+        var data = new byte[codec.DataLength];
+        rnd.NextBytes(data);
+        byte[] clean = codec.Encode(data);
+        var conventional = new byte[clean.Length];
+
+        for (int attempt = 0; attempt < 20_000; attempt++)
+        {
+            byte[] received = (byte[])clean.Clone();
+            int first = rnd.Next(received.Length);
+            int second = (first + 1 + rnd.Next(received.Length - 1)) % received.Length;
+            received[first] ^= (byte)rnd.Next(1, 256);
+            received[second] ^= (byte)rnd.Next(1, 256);
+            for (int i = 0; i < received.Length; i++)
+            {
+                conventional[i] = DualBasisTransform.ToConventional(received[i]);
+            }
+
+            if (Horner(conventional, ReedSolomonCodec.RootAt(0)) != 0)
+            {
+                continue;
+            }
+
+            var decoded = new byte[codec.DataLength];
+            ReedSolomonResult result = codec.Decode(received, decoded);
+            Assert.True(result.Succeeded, $"attempt {attempt}: S0 = 0 인 오류 두 개를 정정하지 못했다");
+            Assert.Equal(2, result.CorrectedSymbols);
+            Assert.Equal(data, decoded);
+            return;
+        }
+
+        Assert.Fail("S0 = 0 인 오류 모양을 찾지 못했다 — 시도 수를 늘려야 한다");
+    }
+
     /// <summary>Σ c_i·x^(254−i) — 구현의 표와 무관하게 GaloisField256 곱셈만으로.</summary>
     private static byte Horner(byte[] codeword, byte x)
     {
