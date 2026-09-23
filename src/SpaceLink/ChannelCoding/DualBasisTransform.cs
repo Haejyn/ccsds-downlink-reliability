@@ -17,7 +17,7 @@ namespace SpaceLink.ChannelCoding;
 ///
 /// "z0 이 먼저 전송된다"(§4.3.9.2) 는 **비트** 전송 순서 요구를 바이트의 MSB 가 z0 인 값으로 옮겼다 — 공개 구현 libfec 의
 /// 변환표(Taltab)와 같은 관례이고, 부호화 결과가 바이트 단위로 같다(<c>LibfecCrossCheckTests</c>).
-/// ⚠ 실제 위성에서 캡처한 비트열과는 대조하지 못했다.
+/// 실제 위성(Astrocast 0.1)이 보낸 비트열도 이 관례로 복호된다(<c>RealCaptureTests</c>).
 /// </summary>
 internal static class DualBasisTransform
 {

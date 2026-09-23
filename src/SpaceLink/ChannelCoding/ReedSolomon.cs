@@ -33,7 +33,7 @@ public readonly record struct ReedSolomonResult(bool Succeeded, int CorrectedSym
 /// 공개 구현 libfec(Phil Karn)의 CCSDS RS 실제 출력과 바이트 단위로 대조한다 — 부호화 35 개가 같고, 복호 판정도 같다.
 /// 다만 libfec 는 채움 자리로 가는 정정을 건너뛰고 성공으로 알리는데, 이 구현은 실패로 알린다(<c>LibfecCrossCheckTests</c>).
 ///
-/// ⚠ 남은 한계: 실제 위성에서 캡처한 비트열과는 대조하지 못했다.
+/// 실제 위성(Astrocast 0.1) 캡처의 코드블록(I = 5)도 복호하고, 송신기가 계산한 프레임 CRC 가 맞는다(<c>RealCaptureTests</c>).
 /// </summary>
 public sealed class ReedSolomonCodec
 {
