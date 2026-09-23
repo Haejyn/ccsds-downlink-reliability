@@ -42,6 +42,12 @@ jobs:
       - name: libfec golden vectors are reproducible
         if: runner.os == 'Linux'
         run: python tools/gen_golden_libfec.py --check
+      # 실제 위성 캡처 비트열이 재현되는지 — 녹음을 고정 커밋에서 받아(sha256 확인) 다시 복조하고 저장소 파일과 대조한다.
+      - name: Real capture bitstream is reproducible
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install --quiet numpy
+          python tools/gen_golden_capture.py --check
       - name: Job summary
         if: always()
         shell: bash
