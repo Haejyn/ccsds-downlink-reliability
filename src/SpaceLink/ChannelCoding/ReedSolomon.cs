@@ -143,8 +143,9 @@ public sealed class ReedSolomonCodec
         int fill = FillPerCodeword;
         for (int lane = 0; lane < InterleavingDepth; lane++)
         {
-            // 보내지 않은 가상 채움 자리를 0 으로 되살린다.
-            codeword[..fill].Clear();
+            // 보내지 않은 가상 채움 자리(앞 fill 칸)는 채우지 않는다 — 0 이 확실한 자리라 신드롬·Chien·출력 어디서도
+            // 읽지 않는다(신드롬은 fill 부터, Chien 은 보낸 자리만, 출력은 fill 부터). 0 으로 지우는 줄을 두었다가 생존 뮤턴트가
+            // 아무도 읽지 않는다는 것을 가리켜 지웠다.
             for (int i = fill; i < SymbolsPerCodeword; i++)
             {
                 // 오류가 정보 심볼에 있든 패리티에 있든, 부호화 대수는 전부 관례 기저에서 한다.
@@ -193,12 +194,13 @@ public sealed class ReedSolomonCodec
         return generator;
     }
 
-    /// <summary>조직적 부호화 — 데이터는 그대로 두고 뒤 32 심볼에 나머지를 채운다.</summary>
+    /// <summary>
+    /// 조직적 부호화의 나눗셈 — 뒤 32 심볼에 나머지(= 패리티)를 채운다. 앞 223 심볼은 나눗셈이 몫 자리로 헤집어 놓는다.
+    /// 예전에는 데이터를 저장했다 되돌렸지만, A4 부터 <see cref="Encode"/> 가 정보 심볼을 입력에서 바로 내보내
+    /// 그 복원을 읽는 곳이 없어졌다(생존 뮤턴트 두 개가 가리켰다) — 호출자는 패리티만 읽는다.
+    /// </summary>
     private static void EncodeCodeword(Span<byte> codeword)
     {
-        Span<byte> data = stackalloc byte[DataSymbolsPerCodeword];
-        codeword[..DataSymbolsPerCodeword].CopyTo(data);
-
         for (int i = 0; i < DataSymbolsPerCodeword; i++)
         {
             byte coefficient = codeword[i];
@@ -213,8 +215,6 @@ public sealed class ReedSolomonCodec
             }
         }
 
-        // 나눗셈이 앞쪽(몫 자리)을 헤집었으므로 데이터를 되돌린다. 뒤 32 심볼이 나머지 = 패리티다.
-        data.CopyTo(codeword[..DataSymbolsPerCodeword]);
     }
 
     /// <summary>
