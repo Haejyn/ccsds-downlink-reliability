@@ -18,7 +18,7 @@ dotnet test tests/SpaceLink.Tests -c Release -p:CollectCoverage=true
 | 뮤테이션을 심판으로 세운 시험 생성 루프 | `tools/mutation_loop/` — 생존 뮤턴트를 모델에 넘겨 시험을 쓰게 하고, **생존이 줄 때만 채택**한다. `ReedSolomon.cs` 에서 생존 10 → 7, 죽은 셋은 전부 REQ-RS-03 의 핵심([시험 보고서 §10](docs/test-report.md)) |
 | 커버리지 (coverlet) | 라인 **100 %** (706/706) · 분기 **100 %** (296/296) · 메서드 100 % |
 | 채널 부호 (RS·ASM·PN) | RS(255,223) 심볼 오류 **16 개까지 정정**, 17 개 이상은 3,000/3,000 **실패 선언**(오정정 0). 3 비트 슬립에서 10 장 중 7 장 복원 후 재동기 |
-| 뮤테이션 검출률 (Stryker.NET) | **약 95 %** — RS 표준화(#6) 뒤 698 개 대상에서 실행마다 **94.99 ~ 95.70 %** ([CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/35733860187)). 그 전 95.09 %(672 개)의 생존 33 은 전부 판정했다 — **메시지 문자열 18 · 이미 판정한 성능 정책·메시지 안 산술 5 · 동등 8 · 남은 실제 약점 2** ([시험 보고서 §9.5](docs/test-report.md)). 죽임·타임아웃·생존 경계가 러너 속도에 따라 흔들려 한 번의 점수로 읽지 않는다 |
+| 뮤테이션 검출률 (Stryker.NET) | **95.49 %** (710 개, [CI run](https://github.com/Haejyn/ccsds-downlink-reliability/actions/runs/35823014373)). 같은 코드도 실행마다 약 ±0.4 %p 흔들려(죽임·타임아웃·생존 경계가 러너 속도에 따라 갈린다) 한 번의 점수로 읽지 않는다. 생존은 메시지 문자열·동등·판정된 성능 정책이고, 남은 실제 약점은 하나다 ([시험 보고서 §9.5·§9.8](docs/test-report.md)) |
 | 요구사항 추적 | **25 / 25** ([`docs/traceability.md`](docs/traceability.md), `python tools/trace.py` 가 생성) |
 | 빌드 | 컴파일러·.NET 분석기(latest-recommended) 경고를 오류로 — 경고 0 |
 | 처리량 — **추출 단계만** (BenchmarkDotNet, 단일 스레드) | **2,785,000 프레임/초** ≈ **2.85 Gbps** (128 바이트 프레임 78,089 장 / 28.04 ms) · PEC 검증 포함 1,611,000 프레임/초. 프레임을 패킷으로 조립하는 **마지막 단계**의 값이다 |
