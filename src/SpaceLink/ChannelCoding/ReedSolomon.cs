@@ -50,15 +50,21 @@ public sealed class ReedSolomonCodec
     /// <summary>첫 근의 β 지수 — E=16 이면 j = 128−E = 112 부터 32 개(§4.3.4).</summary>
     internal const int FirstConsecutiveRoot = 128 - CorrectableSymbols;
 
+    /// <summary>
+    /// 표준이 허용하는 인터리빙 깊이 — I = 1, 2, 3, 4, 5, 8 (§4.3.5.1). 그 밖의 값도 산술로는 돌아가지만,
+    /// 표준 수신기와 맞출 수 없는 코드블록이 된다(예: I = 6 이면 1530 바이트 — 어떤 표준 링크에도 없는 길이).
+    /// </summary>
+    public static IReadOnlyList<int> AllowedInterleavingDepths { get; } = [1, 2, 3, 4, 5, 8];
+
     private static readonly byte[] Generator = BuildGenerator();
 
-    /// <param name="interleavingDepth">인터리빙 깊이 I.</param>
+    /// <param name="interleavingDepth">인터리빙 깊이 I — <see cref="AllowedInterleavingDepths"/> 중 하나.</param>
     /// <param name="virtualFill">
     /// 가상 채움 Q (심볼) — 코드블록 앞쪽에서 0 으로 치고 보내지 않는 심볼 수. I 의 배수이고 223·I 보다 작아야 한다(§4.3.7.3).
     /// </param>
     public ReedSolomonCodec(int interleavingDepth = 1, int virtualFill = 0)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(interleavingDepth, 1);
+        ValidateInterleavingDepth(interleavingDepth);
         ArgumentOutOfRangeException.ThrowIfNegative(virtualFill);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(virtualFill, DataSymbolsPerCodeword * interleavingDepth);
         if (virtualFill % interleavingDepth != 0)
@@ -72,6 +78,15 @@ public sealed class ReedSolomonCodec
     }
 
     public int InterleavingDepth { get; }
+
+    internal static void ValidateInterleavingDepth(int interleavingDepth)
+    {
+        if (!AllowedInterleavingDepths.Contains(interleavingDepth))
+        {
+            throw new ArgumentOutOfRangeException(nameof(interleavingDepth), interleavingDepth,
+                $"interleaving depth must be one of {string.Join(", ", AllowedInterleavingDepths)} (CCSDS 131.0-B-5 §4.3.5.1)");
+        }
+    }
 
     /// <summary>가상 채움 Q — 코드블록 앞쪽의 보내지 않는 0 심볼 수.</summary>
     public int VirtualFill { get; }
