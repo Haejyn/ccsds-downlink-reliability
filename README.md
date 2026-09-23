@@ -74,6 +74,19 @@ flowchart LR
 - 최적화 후 뮤테이션 93.96 %로 하락 → 약점 2개 시험 추가, 동등성 미증명 최적화 2개 되돌림
 - CI 게이트는 시간 대신 프레임당 할당
 
+## 🧰 도구
+
+| 용도 | 도구 |
+|---|---|
+| 시험 | xUnit · .NET 분석기 (경고 = 오류) |
+| 품질 측정 | coverlet (커버리지) · Stryker.NET (뮤테이션) |
+| 정답 기준 | CCSDS 표준 문서 · libfec · 위성 녹음 · SatNOGS 복호 결과 |
+| 성능 | BenchmarkDotNet · 프레임당 할당 게이트 |
+| 추적 | `tools/trace.py` → 추적 매트릭스 |
+| 자동화 | GitHub Actions (ubuntu · windows) |
+
+고른 이유 · 실행 시점: [도구 정리](docs/tools.md)
+
 ## 찾은 결함
 
 | ID | 내용 | 발견 |
@@ -127,7 +140,7 @@ CI: ubuntu · windows 시험, 커버리지 · 추적 · 재현성 검사, 할당
 | `tests/SpaceLink.Tests/` | xUnit 139개 · 기준 자료 `golden/` ([출처](tests/SpaceLink.Tests/golden/SOURCES.md)) |
 | `benchmarks/` | 추출 단계 · 수신 체인 (단일 · 병렬) |
 | `tools/` | 추적 · 할당 게이트 · libfec 벡터 · 녹음 복조 · 그림 · 뮤테이션 루프 |
-| `docs/` | [요구사항](docs/requirements.md) · [시험 계획서](docs/test-plan.md) · [시험 보고서](docs/test-report.md) · [추적 매트릭스](docs/traceability.md) |
+| `docs/` | [요구사항](docs/requirements.md) · [시험 계획서](docs/test-plan.md) · [시험 보고서](docs/test-report.md) · [추적 매트릭스](docs/traceability.md) · [도구 정리](docs/tools.md) |
 
 </details>
 
