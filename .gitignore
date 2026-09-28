@@ -9,3 +9,4 @@ StrykerOutput/
 BenchmarkDotNet.Artifacts/
 __pycache__/
 *.pyc
+scripts/.venv-media/

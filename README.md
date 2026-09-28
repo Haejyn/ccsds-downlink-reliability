@@ -10,6 +10,9 @@ CCSDS 다운링크 수신 처리기 (C# / .NET 10) + 신뢰성 시험
 ![mutation](https://img.shields.io/badge/mutation-94.65%25-16a34a)
 ![requirements](https://img.shields.io/badge/requirements-30%2F30-2563eb)
 
+![Astrocast 0.1 수신 과정](docs/media/downlink.gif)
+<sub>그림. Astrocast 0.1 실제 수신 신호 · (a) 파형 · 표본 시점 · ASM (b) 눈 다이어그램 누적 (c) 복호된 프레임 — 디코더 출력 그대로, 시간 축은 ASM 부근만 늘림 · [MP4](docs/media/downlink.mp4)</sub>
+
 ## 요약
 
 - 📡 실제 위성 신호 복호: Astrocast 0.1, EIRSAT-1 녹음
@@ -124,6 +127,7 @@ dotnet run -c Release --project benchmarks/SpaceLink.Benchmarks -- --filter '*' 
 python tools/gen_golden_libfec.py --check                              # libfec 기준 벡터 재현
 python tools/gen_golden_capture.py --check                             # 위성 녹음 복조 재현
 python tools/make_readme_figures.py                                    # README 그림
+python scripts/make_downlink_animation.py                              # README 애니메이션 (tools/DownlinkTrace 출력 사용)
 ```
 
 CI: ubuntu · windows 시험, 커버리지 · 추적 · 재현성 검사, 할당 게이트, 뮤테이션 게이트 (80 %)
